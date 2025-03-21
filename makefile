@@ -24,7 +24,7 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
+	@qemu-system-i386 -s -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
 
 # Build All
 all: build
