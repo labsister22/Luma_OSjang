@@ -21,6 +21,7 @@ LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/kernel.o \
        $(OUTPUT_FOLDER)/gdt.o
+	   
 
 # Run QEMU
 run: all
