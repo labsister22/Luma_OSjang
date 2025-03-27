@@ -1,3 +1,4 @@
+
 ENTRY(loader)                /* the name of the entry label */
 
 SECTIONS {
