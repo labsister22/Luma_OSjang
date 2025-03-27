@@ -7,10 +7,10 @@
 
 void framebuffer_set_cursor(uint8_t r, uint8_t c) {
     uint16_t pos = r * 80 + c;
-    outb(0x3D4, 0x0E);
-    outb(0x3D5, (pos >> 8) & 0xFF);
-    outb(0x3D4, 0x0F);
-    outb(0x3D5, pos & 0xFF);
+    out(0x3D4, 0x0E);
+    out(0x3D5, (pos >> 8) & 0xFF);
+    out(0x3D4, 0x0F);
+    out(0x3D5, pos & 0xFF);
 }
 
 void framebuffer_write(uint8_t row, uint8_t col, char c, uint8_t fg, uint8_t bg) {
