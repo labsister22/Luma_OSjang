@@ -1,4 +1,3 @@
-
 # Compiler & Linker
 ASM           = nasm
 LIN           = ld
@@ -21,7 +20,9 @@ LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 # File Object
 OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/kernel.o \
-       $(OUTPUT_FOLDER)/gdt.o
+       $(OUTPUT_FOLDER)/gdt.o \
+	   $(OUTPUT_FOLDER)/portio.o \
+       $(OUTPUT_FOLDER)/framebuffer.o
 
 # Run QEMU
 run: all
@@ -34,7 +35,9 @@ build: iso
 
 # Clean
 clean:
-	rm -rf $(OBJS) $(OUTPUT_FOLDER)/kernel $(OUTPUT_FOLDER)/$(ISO_NAME).iso
+	rm -rf $(OBJS) $(OUTPUT_FOLDER)/kernel $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
+			$(OUTPUT_FOLDER)/portio.o $(OUTPUT_FOLDER)/framebuffer.o $(OUTPUT_FOLDER)/iso
+
 
 # Compile Kernel Entry Point (Assembly)
 $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
@@ -47,6 +50,15 @@ $(OUTPUT_FOLDER)/kernel.o: $(SOURCE_FOLDER)/kernel.c
 # Compile GDT (C)
 $(OUTPUT_FOLDER)/gdt.o: $(SOURCE_FOLDER)/gdt.c
 	$(CC) $(CFLAGS) $< -o $@
+
+#Compile portio (C)
+$(OUTPUT_FOLDER)/portio.o: $(SOURCE_FOLDER)/portio.c #$(SOURCE_FOLDER)/header/cpu/portio.h
+	$(CC) $(CFLAGS) $< -o $@
+
+#Compile framebuffer (C)
+$(OUTPUT_FOLDER)/framebuffer.o: $(SOURCE_FOLDER)/framebuffer.c #$(SOURCE_FOLDER)/header/text/framebuffer.h
+	$(CC) $(CFLAGS) $< -o $@
+
 
 # Link Semua Object Files
 $(OUTPUT_FOLDER)/kernel: $(OBJS)
