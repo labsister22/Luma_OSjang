@@ -3,6 +3,7 @@
     "files.associations": {
         "gdt.h": "c",
         "portio.h": "c",
-        "framebuffer.h": "c"
+        "framebuffer.h": "c",
+        "idt.h": "c"
     },
 }
