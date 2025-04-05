@@ -1,6 +1,7 @@
 #include "header/cpu/interrupt.h"
 #include "header/cpu/portio.h"
 
+
 void io_wait(void) {
     out(0x80, 0);
 }
@@ -36,16 +37,30 @@ void pic_remap(void) {
 }
 
 void main_interrupt_handler(struct InterruptFrame frame) {
-    switch (frame.int_number) {
-        case 0x20:
+    uint32_t int_num = frame.int_number;
+
+    switch (int_num) {
+        case 0x00:
             break;
+
+        case 0x0D:
+            break;
+
+        case 0x0E:
+            break;
+
         case 0x21:
+            // Keyboard interrupt (IRQ1)
+            // ACK keyboard interrupt (IRQ1)
+            pic_ack(IRQ_KEYBOARD);
             break;
+
         default:
             break;
     }
 
-    if (frame.int_number >= PIC1_OFFSET && frame.int_number < PIC2_OFFSET + 8) {
-        pic_ack(frame.int_number - PIC1_OFFSET);
+    // Send End of Interrupt (EOI) untuk IRQ >= 0x20
+    if (int_num >= PIC1_OFFSET && int_num <= PIC2_OFFSET + 7) {
+        pic_ack(int_num - PIC1_OFFSET);
     }
 }

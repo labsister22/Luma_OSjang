@@ -21,8 +21,12 @@ LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/kernel.o \
        $(OUTPUT_FOLDER)/gdt.o \
-	   $(OUTPUT_FOLDER)/portio.o \
-       $(OUTPUT_FOLDER)/framebuffer.o
+       $(OUTPUT_FOLDER)/portio.o \
+       $(OUTPUT_FOLDER)/framebuffer.o \
+       $(OUTPUT_FOLDER)/interrupt.o \
+	   $(OUTPUT_FOLDER)/intsetup.o \
+       $(OUTPUT_FOLDER)/idt.o
+
 
 # Run QEMU
 run: all
@@ -43,6 +47,8 @@ clean:
 $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 	@$(ASM) $(AFLAGS) $< -o $@
 
+$(OUTPUT_FOLDER)/intsetup.o: $(SOURCE_FOLDER)/intsetup.s
+	$(ASM) $(AFLAGS) $< -o $@
 # Compile Kernel (C)
 $(OUTPUT_FOLDER)/kernel.o: $(SOURCE_FOLDER)/kernel.c
 	$(CC) $(CFLAGS) $< -o $@
@@ -64,6 +70,13 @@ $(OUTPUT_FOLDER)/framebuffer.o: $(SOURCE_FOLDER)/framebuffer.c #$(SOURCE_FOLDER)
 $(OUTPUT_FOLDER)/kernel: $(OBJS)
 	@$(LIN) $(LFLAGS) $(OBJS) -o $@
 	@echo "Linking object files and generating ELF32 kernel..."
+
+$(OUTPUT_FOLDER)/interrupt.o: $(SOURCE_FOLDER)/interrupt.c
+	$(CC) $(CFLAGS) $< -o $@
+
+$(OUTPUT_FOLDER)/idt.o: $(SOURCE_FOLDER)/idt.c
+	$(CC) $(CFLAGS) $< -o $@
+
 
 # Generate ISO
 iso: $(OUTPUT_FOLDER)/kernel
