@@ -21,12 +21,17 @@ LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/kernel.o \
        $(OUTPUT_FOLDER)/gdt.o \
-	   $(OUTPUT_FOLDER)/portio.o \
-       $(OUTPUT_FOLDER)/framebuffer.o
+       $(OUTPUT_FOLDER)/portio.o \
+       $(OUTPUT_FOLDER)/framebuffer.o \
+       $(OUTPUT_FOLDER)/interrupt.o \
+	   $(OUTPUT_FOLDER)/intsetup.o \
+       $(OUTPUT_FOLDER)/idt.o \
+	   $(OUTPUT_FOLDER)/keyboard.o
+
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
+	@qemu-system-i386 -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
 
 # Build All
 all: build
@@ -43,6 +48,8 @@ clean:
 $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 	@$(ASM) $(AFLAGS) $< -o $@
 
+$(OUTPUT_FOLDER)/intsetup.o: $(SOURCE_FOLDER)/intsetup.s
+	$(ASM) $(AFLAGS) $< -o $@
 # Compile Kernel (C)
 $(OUTPUT_FOLDER)/kernel.o: $(SOURCE_FOLDER)/kernel.c
 	$(CC) $(CFLAGS) $< -o $@
@@ -59,11 +66,25 @@ $(OUTPUT_FOLDER)/portio.o: $(SOURCE_FOLDER)/portio.c #$(SOURCE_FOLDER)/header/cp
 $(OUTPUT_FOLDER)/framebuffer.o: $(SOURCE_FOLDER)/framebuffer.c #$(SOURCE_FOLDER)/header/text/framebuffer.h
 	$(CC) $(CFLAGS) $< -o $@
 
+#Compile keyboard (C)
+$(OUTPUT_FOLDER)/keyboard.o: $(SOURCE_FOLDER)/keyboard.c #$(SOURCE_FOLDER)/header/driver/keyboard.h
+	$(CC) $(CFLAGS) $< -o $@
+
 
 # Link Semua Object Files
 $(OUTPUT_FOLDER)/kernel: $(OBJS)
 	@$(LIN) $(LFLAGS) $(OBJS) -o $@
 	@echo "Linking object files and generating ELF32 kernel..."
+
+$(OUTPUT_FOLDER)/interrupt.o: $(SOURCE_FOLDER)/interrupt.c
+	$(CC) $(CFLAGS) $< -o $@
+
+$(OUTPUT_FOLDER)/idt.o: $(SOURCE_FOLDER)/idt.c
+	$(CC) $(CFLAGS) $< -o $@
+
+$(OUTPUT_FOLDER)/keyboard.o: $(SOURCE_FOLDER)/keyboard.c
+	$(CC) $(CFLAGS) $< -o $@
+
 
 # Generate ISO
 iso: $(OUTPUT_FOLDER)/kernel
