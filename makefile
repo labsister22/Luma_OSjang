@@ -25,9 +25,9 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/framebuffer.o \
        $(OUTPUT_FOLDER)/interrupt.o \
        $(OUTPUT_FOLDER)/idt.o	\
-			 $(OUTPUT_FOLDER)/keyboard.o	\
-			 $(OUTPUT_FOLDER)/intsetups.o	\
-			 $(OUTPUT_FOLDER)/string.o
+       $(OUTPUT_FOLDER)/keyboard.o	\
+       $(OUTPUT_FOLDER)/intsetups.o	\
+       $(OUTPUT_FOLDER)/string.o
 
 # Run QEMU
 run: all
@@ -48,7 +48,7 @@ $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 	@$(ASM) $(AFLAGS) $< -o $@
 
 # Compile intsetup (Assembly)
-bin/intsetups.o: src/intsetups.s
+$(OUTPUT_FOLDER)/intsetups.o: $(SOURCE_FOLDER)/intsetups.s
 	$(ASM) $(AFLAGS) $< -o $@
 
 # Compile Kernel (C)

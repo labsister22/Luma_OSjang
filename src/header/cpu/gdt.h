@@ -35,7 +35,6 @@ struct SegmentDescriptor
     uint8_t base_mid;
     uint8_t type_bit : 4;
     uint8_t non_system : 1;
-    // TODO : Continue SegmentDescriptor definition
     uint8_t dpl : 2;     // Descriptor Privilege Level (Ring 0-3)
     uint8_t present : 1; // 1 = Segment aktif
 
