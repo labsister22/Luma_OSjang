@@ -25,7 +25,9 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/framebuffer.o \
        $(OUTPUT_FOLDER)/interrupt.o \
        $(OUTPUT_FOLDER)/idt.o	\
-			 $(OUTPUT_FOLDER)/intsetups.o
+			 $(OUTPUT_FOLDER)/keyboard.o	\
+			 $(OUTPUT_FOLDER)/intsetups.o	\
+			 $(OUTPUT_FOLDER)/string.o
 
 # Run QEMU
 run: all
@@ -71,6 +73,14 @@ $(OUTPUT_FOLDER)/interrupt.o: $(SOURCE_FOLDER)/interrupt.c
 
 # Compile idt (C)
 $(OUTPUT_FOLDER)/idt.o: $(SOURCE_FOLDER)/idt.c
+	$(CC) $(CFLAGS) $< -o $@
+
+# Compile keyboard (C)
+$(OUTPUT_FOLDER)/keyboard.o: $(SOURCE_FOLDER)/keyboard.c
+	$(CC) $(CFLAGS) $< -o $@
+
+# Compile string (C)
+$(OUTPUT_FOLDER)/string.o: $(SOURCE_FOLDER)/string.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Link Semua Object Files

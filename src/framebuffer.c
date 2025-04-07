@@ -31,17 +31,3 @@ void framebuffer_clear(void)
   }
   framebuffer_set_cursor(0, 0);
 }
-void print_str(const char *str, uint8_t row, uint8_t col, uint8_t color)
-{
-  uint8_t fg = color & 0x0F;
-  uint8_t bg = (color >> 4) & 0x0F;
-  while (*str)
-  {
-    framebuffer_write(row, col++, *str++, fg, bg);
-    if (col >= 80)
-    {
-      col = 0;
-      row++;
-    }
-  }
-}

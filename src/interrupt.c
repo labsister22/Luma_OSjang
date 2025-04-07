@@ -1,6 +1,7 @@
 
 #include "header/cpu/interrupt.h"
 #include "header/cpu/portio.h"
+#include "header/driver/keyboard.h"
 
 void io_wait(void)
 {
@@ -58,7 +59,8 @@ void main_interrupt_handler(struct InterruptFrame frame)
   case 0x21:
     // Keyboard interrupt (IRQ1)
     // ACK keyboard interrupt (IRQ1)
-    pic_ack(IRQ_KEYBOARD);
+    keyboard_isr();
+    // pic_ack(IRQ_KEYBOARD);
     break;
 
   default:
@@ -70,4 +72,9 @@ void main_interrupt_handler(struct InterruptFrame frame)
   {
     pic_ack(int_num - PIC1_OFFSET);
   }
+}
+
+void activate_keyboard_interrupt(void)
+{
+  out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
 }
