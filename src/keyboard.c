@@ -1,6 +1,7 @@
 #include "header/driver/keyboard.h"
 #include "header/cpu/portio.h"
 #include "header/stdlib/string.h"
+#include "header/text/framebuffer.h"
 
 // Add these definitions after the includes
 // #define KEYBOARD_BUFFER_SIZE 256
@@ -57,7 +58,7 @@ const char keyboard_scancode_1_to_ascii_map[256] = {
     'l',
     ';',
     '\'',
-    '`',
+    ' ',
     0,
     '\\',
     'z',
@@ -279,6 +280,8 @@ void keyboard_state_activate(void)
 {
   keyboard_state.keyboard_input_on = true;
   keyboard_state.buffer_index = 0;
+  keyboard_state.cursor_x = 0; // Initialize cursor position
+  keyboard_state.cursor_y = 0; // Initialize cursor position
   memset(keyboard_state.keyboard_buffer, 0, KEYBOARD_BUFFER_SIZE);
 }
 
@@ -315,7 +318,42 @@ void keyboard_isr(void)
     char ascii = keyboard_scancode_1_to_ascii_map[scancode];
     if (ascii && keyboard_state.buffer_index < KEYBOARD_BUFFER_SIZE - 1)
     {
+      // Store character in buffer
       keyboard_state.keyboard_buffer[keyboard_state.buffer_index++] = ascii;
+
+      // Create a temporary single character string
+      char temp[2] = {ascii, '\0'};
+
+      // Handle special characters
+      if (ascii == '\n')
+      {
+        keyboard_state.cursor_x = 0;
+        keyboard_state.cursor_y++;
+      }
+      else if (ascii == '\b')
+      {
+        if (keyboard_state.cursor_x > 0)
+        {
+          keyboard_state.cursor_x--;
+          print_str(" ", keyboard_state.cursor_y, keyboard_state.cursor_x, 0x07);
+        }
+      }
+      else
+      {
+        // Display character and advance cursor
+        print_str(temp, keyboard_state.cursor_y, keyboard_state.cursor_x, 0x07);
+        keyboard_state.cursor_x++;
+
+        // Handle line wrapping
+        if (keyboard_state.cursor_x >= 80)
+        {
+          keyboard_state.cursor_x = 0;
+          keyboard_state.cursor_y++;
+        }
+      }
+
+      // Update hardware cursor position
+      framebuffer_set_cursor(keyboard_state.cursor_y, keyboard_state.cursor_x);
     }
   }
 }

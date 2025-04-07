@@ -31,3 +31,28 @@ void framebuffer_clear(void)
   }
   framebuffer_set_cursor(0, 0);
 }
+
+void print_str(const char *str, uint8_t row, uint8_t col, uint8_t color)
+{
+  uint8_t fg = color & 0x0F;
+  uint8_t bg = (color >> 4) & 0x0F;
+  uint8_t current_row = row;
+  uint8_t current_col = col;
+
+  while (*str)
+  {
+    framebuffer_write(current_row, current_col, *str, fg, bg);
+    current_col++;
+    str++;
+
+    if (current_col >= 80)
+    {
+      current_col = 0;
+      current_row++;
+      if (current_row >= 25)
+        current_row = 24; // Limit rows to prevent overflow
+    }
+    // Update cursor position after each character
+    framebuffer_set_cursor(current_row, current_col);
+  }
+}
