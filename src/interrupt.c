@@ -54,7 +54,7 @@ void main_interrupt_handler(struct InterruptFrame frame) {
             // Keyboard interrupt (IRQ1)
             // ACK keyboard interrupt (IRQ1)
             keyboard_isr();
-            pic_ack(IRQ_KEYBOARD);
+            //pic_ack(IRQ_KEYBOARD);
             break;
 
         default:
