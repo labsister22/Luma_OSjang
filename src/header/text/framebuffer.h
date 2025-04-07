@@ -1,4 +1,3 @@
-
 #ifndef _FRAMEBUFFER_H
 #define _FRAMEBUFFER_H
 
@@ -45,5 +44,6 @@ void framebuffer_set_cursor(uint8_t r, uint8_t c);
  *
  */
 void framebuffer_clear(void);
+void print_str(const char *str, uint8_t row, uint8_t col, uint8_t color);
 
 #endif

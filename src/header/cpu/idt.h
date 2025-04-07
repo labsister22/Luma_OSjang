@@ -1,3 +1,4 @@
+
 #ifndef _IDT_H
 #define _IDT_H
 
@@ -11,9 +12,28 @@
 #define INTERRUPT_GATE_R_BIT_1 0b000
 #define INTERRUPT_GATE_R_BIT_2 0b110
 #define INTERRUPT_GATE_R_BIT_3 0b0
-
+struct IDTGate
+{
+  // First 32-bit (Bit 0 to 31)
+  uint16_t offset_low;
+  uint16_t segment;      // Selector segment di GDT
+  uint8_t _reserved : 5; // Harus 0
+  uint8_t _r_bit_1 : 3;  // Harus 0b000
+  uint8_t _r_bit_2 : 3;  // Harus 0b110 (Interrupt Gate)
+  uint8_t gate_32 : 1;   // 1 = 32-bit gate, 0 = 16-bit
+  uint8_t _r_bit_3 : 1;  // Harus 0
+  uint8_t privilege : 2; // Privilege level (0 = kernel, 3 = user)
+  uint8_t valid_bit : 1; // 1 jika entry aktif
+  uint16_t offset_high;  // Offset handler (bits 16-31)
+} __attribute__((packed));
+struct IDTR
+{
+  uint16_t limit; // Panjang IDT dalam byte - 1
+  uintptr_t base; // Alamat IDT di memori
+} __attribute__((packed));
 // Interrupt Handler / ISR stub for reducing code duplication, this array can be iterated in initialize_idt()
 extern void *isr_stub_table[ISR_STUB_TABLE_LIMIT];
+extern struct IDTGate interrupt_descriptor_table[IDT_MAX_ENTRY_COUNT];
 extern struct IDTR _idt_idtr;
 
 /**
@@ -29,47 +49,6 @@ extern struct IDTR _idt_idtr;
  * @param _r_bit_3    Reserved for idtgate type, bit length: 1
  * ...
  */
-struct IDTGate
-{
-  // First 32-bit (Bit 0 to 31)
-  uint16_t offset_low;   // Lower 16-bit offset
-  uint16_t segment;      // GDT segment selector
-  uint8_t _reserved : 5; // Reserved, must be zero
-  uint8_t _r_bit_1 : 3;  // Reserved for IDT gate type
-  uint8_t _r_bit_2 : 3;  // Reserved for IDT gate type
-  uint8_t gate_32 : 1;   // 1 = 32-bit gate, 0 = 16-bit gate
-  uint8_t _r_bit_3 : 1;  // Reserved for IDT gate type
-  uint8_t privilege : 2; // Descriptor privilege level (DPL)
-  uint8_t present : 1;   // Present bit (1 = valid entry)
-
-  // Last 32-bit (Bit 32 to 63)
-  uint16_t offset_high; // Higher 16-bit offset
-
-  uint8_t valid_bit; // 1 = entry valid, 0 = tidak valid
-} __attribute__((packed));
-
-/**
- * Interrupt Descriptor Table, containing lists of IDTGate.
- * One IDT already defined in idt.c
- *
- * ...
- */
-struct IDT
-{
-  struct IDTGate table[IDT_MAX_ENTRY_COUNT]; // Array of IDT entries
-} __attribute__((packed));
-
-/**
- * IDTR, carrying information where's the IDT located and size.
- * Global kernel variable defined at idt.c.
- *
- * ...
- */
-struct IDTR
-{
-  uint16_t limit; // Size of IDT table in bytes - 1
-  uint32_t base;  // Address of IDT table
-} __attribute__((packed));
 
 /**
  * Set IDTGate with proper interrupt handler values.
