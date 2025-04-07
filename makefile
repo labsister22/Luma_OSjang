@@ -29,6 +29,7 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/intsetups.o	\
        $(OUTPUT_FOLDER)/string.o
 
+
 # Run QEMU
 run: all
 	@qemu-system-i386 -s -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
@@ -40,12 +41,14 @@ build: iso
 
 # Clean
 clean:
+
 	rm -rf $(OBJS) $(OUTPUT_FOLDER)/kernel $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
 		$(OUTPUT_FOLDER)/iso
 
 # Compile Kernel Entry Point (Assembly)
 $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 	@$(ASM) $(AFLAGS) $< -o $@
+
 
 # Compile intsetup (Assembly)
 $(OUTPUT_FOLDER)/intsetups.o: $(SOURCE_FOLDER)/intsetups.s
@@ -81,6 +84,7 @@ $(OUTPUT_FOLDER)/keyboard.o: $(SOURCE_FOLDER)/keyboard.c
 
 # Compile string (C)
 $(OUTPUT_FOLDER)/string.o: $(SOURCE_FOLDER)/string.c
+
 	$(CC) $(CFLAGS) $< -o $@
 
 # Link Semua Object Files
@@ -95,6 +99,7 @@ iso: $(OUTPUT_FOLDER)/kernel
 	@cp other/grub1                   $(OUTPUT_FOLDER)/iso/boot/grub/
 	@cp $(SOURCE_FOLDER)/menu.lst     $(OUTPUT_FOLDER)/iso/boot/grub/
 	@$(ISO) -R                          \
+
 		-b boot/grub/grub1              \
 		-no-emul-boot                   \
 		-boot-load-size 4               \
@@ -104,3 +109,4 @@ iso: $(OUTPUT_FOLDER)/kernel
 		-boot-info-table                \
 		-o $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
 		$(OUTPUT_FOLDER)/iso
+

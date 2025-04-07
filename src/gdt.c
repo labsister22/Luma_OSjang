@@ -7,6 +7,7 @@
  */
 struct GlobalDescriptorTable global_descriptor_table = {
     .table = {
+
         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // Null descriptor
         {
             .segment_low = 0xFFFF,     // Limit 0-15
@@ -46,5 +47,7 @@ struct GlobalDescriptorTable global_descriptor_table = {
  * From: https://wiki.osdev.org/Global_Descriptor_Table, GDTR.size is GDT size minus 1.
  */
 struct GDTR _gdt_gdtr = {
+
     .size = sizeof(global_descriptor_table) - 1,
     .address = &global_descriptor_table};
+
