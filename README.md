@@ -1,5 +1,5 @@
-# Template Dasar IF2130 - 2025
-Template dasar untuk IF2130 - Sistem Operasi 2025
+# Luma_OSJang
+Tugas Besar IF2130 - Sistem Operasi 2025
 ## IF2130 Sistem Operasi
 Tugas Besar - Milestone 0
 
