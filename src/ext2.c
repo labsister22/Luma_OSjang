@@ -4,8 +4,9 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
 #include "header/filesystem/ext2.h"
+#include "header/driver/disk.h"
 
-struct EXT2SuperBlock superblock;
+static struct EXT2Superblock superblock;
 struct EXT2BlockGroupDescriptorTable bgd_table;
 
 const uint8_t fs_signature[BLOCK_SIZE] = {
@@ -171,8 +172,6 @@ void create_ext2(void)
   memset(boot_sector, 0, BLOCK_SIZE);
   memcpy(boot_sector, fs_signature, sizeof(fs_signature));
   write_blocks(BOOT_SECTOR, 1, boot_sector);
-
-  struct EXT2Superblock superblock;
 
   // Init superblock
   superblock.s_inodes_count = INODES_PER_GROUP * GROUPS_COUNT;
@@ -411,7 +410,6 @@ int8_t delete(struct EXT2DriverRequest request)
  */
 uint32_t allocate_node(void)
 {
-  struct EXT2Superblock superblock;
   for (uint32_t i = 0; i < superblock.s_inodes_count; i++)
   {
     if (!is_inode_used(i))
@@ -432,7 +430,6 @@ uint32_t allocate_node(void)
  */
 void deallocate_node(uint32_t inode)
 {
-  struct EXT2Superblock superblock;
   struct EXT2Inode node;
   read_inode(inode, &node);
   deallocate_blocks(node.i_block, node.i_blocks);
@@ -470,7 +467,6 @@ uint32_t deallocate_block(uint32_t *locations, uint32_t blocks,
                           struct BlockBuffer *bitmap, uint32_t depth,
                           uint32_t *last_bgd, bool bgd_loaded)
 {
-  struct EXT2Superblock superblock;
   for (uint32_t i = 0; i < blocks; i++)
   {
     uint32_t block = locations[i];
@@ -496,7 +492,6 @@ uint32_t deallocate_block(uint32_t *locations, uint32_t blocks,
  */
 void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_bgd)
 {
-  struct EXT2Superblock superblock;
   uint32_t block_needed = ceil_div(node->i_size, BLOCK_SIZE);
   uint8_t *data = (uint8_t *)ptr;
 
