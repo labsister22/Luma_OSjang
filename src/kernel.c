@@ -8,6 +8,8 @@
 #include "header/cpu/interrupt.h"
 #include "header/driver/keyboard.h"
 #include "header/driver/disk.h"
+#include "header/filesystem/ext2.h"
+#include "header/filesystem/test_ext2.h"
 
 // void kernel_setup(void) {
 //     framebuffer_write(0, 0, 'L', 0xF, 0x0);
@@ -31,11 +33,14 @@ void kernel_setup(void)
 
   int row = 0, col = 0;
   keyboard_state_activate();
-  struct BlockBuffer b;
-  framebuffer_write(0, 0, 'L', 0xF, 0x0);
-  for (int i = 0; i < 512; i++) {b.buf[i] = i % 16;}
-  write_blocks(&b, 17, 1);
-  framebuffer_write(0, 0, 'L', 0xF, 0x0);
+  // struct BlockBuffer b;
+  // framebuffer_write(0, 0, 'L', 0xF, 0x0);
+  // for (int i = 0; i < 512; i++) {b.buf[i] = i % 16;}
+  // write_blocks(&b, 17, 1);
+  // framebuffer_write(0, 0, 'L', 0xF, 0x0);
+  initialize_filesystem_ext2();
+  run_ext2_tests();
+
   while (true)
   {
     char c;

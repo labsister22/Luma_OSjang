@@ -1,7 +1,7 @@
 #ifndef _EXT2_H
 #define _EXT2_H
 
-#include "disk.h"
+#include "../driver/disk.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -383,5 +383,21 @@ void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_b
  * @param inode location of the node
  */
 void sync_node(struct EXT2Inode *node, uint32_t inode);
+bool find_dir(uint32_t inode, uint32_t *out_inode_idx);
+bool find_inode_in_dir(struct EXT2Inode *dir_inode, const char *name, uint32_t *out_inode);
+bool is_directory(struct EXT2Inode *inode);
+void read_inode(uint32_t inode, struct EXT2Inode *out_inode);
+void read_inode_data(struct EXT2Inode *inode, void *buf, uint32_t size);
+void set_block_free(uint32_t block);
+uint32_t ceil_div(uint32_t a, uint32_t b);
+bool is_inode_used(uint32_t inode);
+void set_inode_used(uint32_t inode);
+void clear_inode_used(uint32_t inode);
+int32_t allocate_block(uint32_t preferred_bgd);
+void sync_superblock(void);
+void add_inode_to_dir(struct EXT2Inode *dir_inode, uint32_t inode, const char *name);
+bool is_empty_directory(struct EXT2Inode *inode);
+void remove_inode_from_dir(struct EXT2Inode *dir_inode, const char *name);
+
 
 #endif
