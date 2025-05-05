@@ -10,7 +10,7 @@
 
 void out(uint16_t port, uint8_t data)
 {
-  __asm__(
+  __asm__ volatile(
       "outb %0, %1"
       : // <Empty output operand>
       : "a"(data), "Nd"(port));
@@ -43,3 +43,4 @@ uint16_t in16(uint16_t port) {
     );
     return result;
 }
+

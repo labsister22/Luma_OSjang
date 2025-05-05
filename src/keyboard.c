@@ -4,7 +4,7 @@
 #include "header/text/framebuffer.h"
 
 // Add these definitions after the includes
-// #define KEYBOARD_BUFFER_SIZE 256
+#define KEYBOARD_BUFFER_SIZE 256
 // static char keyboard_buffer[KEYBOARD_BUFFER_SIZE];
 // static uint8_t buffer_index = 0;
 // static bool keyboard_input_on = false;
@@ -294,10 +294,43 @@ void keyboard_state_deactivate(void)
 // Get keyboard buffer value and flush the buffer - @param buf Pointer to char buffer
 void get_keyboard_buffer(char *buf)
 {
-  memcpy(buf, keyboard_state.keyboard_buffer, keyboard_state.buffer_index);
-  buf[keyboard_state.buffer_index] = '\0';
-  keyboard_state.buffer_index = 0;
-  memset(keyboard_state.keyboard_buffer, 0, KEYBOARD_BUFFER_SIZE);
+  if (keyboard_state.buffer_index > 0)
+  {
+    char first_char = keyboard_state.keyboard_buffer[0];
+
+    // Menangani karakter backspace
+    if (first_char == '\b')
+    {
+      // Jika buffer tidak kosong, hapus karakter terakhir
+      if (keyboard_state.buffer_index > 1)
+      {
+        memmove(keyboard_state.keyboard_buffer, keyboard_state.keyboard_buffer + 1, keyboard_state.buffer_index - 1);
+        keyboard_state.buffer_index--;
+        *buf = '\0'; // Mengabaikan karakter backspace untuk output
+      }
+    }
+    // Menangani karakter enter
+    else if (first_char == '\n')
+    {
+      *buf = '\n'; // Output karakter enter ke buf
+      memmove(keyboard_state.keyboard_buffer, keyboard_state.keyboard_buffer + 1, keyboard_state.buffer_index - 1);
+      keyboard_state.buffer_index--;
+    }
+    else
+    {
+      *buf = first_char; // Ambil karakter pertama dan pindahkan buffer
+      memmove(keyboard_state.keyboard_buffer, keyboard_state.keyboard_buffer + 1, keyboard_state.buffer_index - 1);
+      keyboard_state.buffer_index--;
+    }
+
+    // Reset buffer visual setelah penghapusan atau pengetikan baru
+    // Di sini Anda bisa menambahkan kode untuk menghapus karakter lama yang ada di buffer visual
+    memset(keyboard_state.keyboard_buffer + keyboard_state.buffer_index, 0, KEYBOARD_BUFFER_SIZE - keyboard_state.buffer_index);
+  }
+  else
+  {
+    *buf = 0; // Tidak ada input, set buf ke 0
+  }
 }
 
 /* -- Keyboard Interrupt Service Routine -- */
@@ -336,6 +369,11 @@ void keyboard_isr(void)
         {
           keyboard_state.cursor_x--;
           print_str(" ", keyboard_state.cursor_y, keyboard_state.cursor_x, 0x07);
+          if (keyboard_state.buffer_index > 0)
+          {
+            keyboard_state.buffer_index--;
+            keyboard_state.keyboard_buffer[keyboard_state.buffer_index] = '\0';
+          }
         }
       }
       else
@@ -351,7 +389,6 @@ void keyboard_isr(void)
           keyboard_state.cursor_y++;
         }
       }
-
       // Update hardware cursor position
       framebuffer_set_cursor(keyboard_state.cursor_y, keyboard_state.cursor_x);
     }

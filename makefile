@@ -17,6 +17,7 @@ STRIP_CFLAG   = -nostdlib -fno-stack-protector -nostartfiles -nodefaultlibs -ffr
 CFLAGS        = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -Iheader
 AFLAGS        = -f elf32 -g -F dwarf
 LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
+DISK_NAME     = storage
 
 # File Object
 OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
@@ -27,15 +28,18 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/interrupt.o \
        $(OUTPUT_FOLDER)/idt.o	\
        $(OUTPUT_FOLDER)/keyboard.o	\
+	   $(OUTPUT_FOLDER)/disk.o	\
        $(OUTPUT_FOLDER)/intsetups.o	\
        $(OUTPUT_FOLDER)/string.o \
-	   $(OUTPUT_FOLDER)/disk.o
+	   $(OUTPUT_FOLDER)/ext2.o \
+	   $(OUTPUT_FOLDER)/test_ext2.o
 
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -S -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
-
+	@mkdir -p disk
+	@cp bin/sample-image.bin bin/storage.bin
+	@qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
 
 # Build All
 all: build
@@ -46,12 +50,12 @@ build: iso
 clean:
 
 	rm -rf $(OBJS) $(OUTPUT_FOLDER)/kernel $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
-		$(OUTPUT_FOLDER)/iso $(OUTPUT_FOLDER)/$(DISK_NAME).bin \
+		$(OUTPUT_FOLDER)/iso $(OUTPUT_FOLDER)/storage.bin
 
-#Disk
+# Disk
 disk:
-	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 4M
-
+	@mkdir -p disk
+	@qemu-img create -f raw bin/storage.bin 4M
 # Compile Kernel Entry Point (Assembly)
 $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 	@$(ASM) $(AFLAGS) $< -o $@
@@ -89,18 +93,29 @@ $(OUTPUT_FOLDER)/idt.o: $(SOURCE_FOLDER)/idt.c
 $(OUTPUT_FOLDER)/keyboard.o: $(SOURCE_FOLDER)/keyboard.c
 	$(CC) $(CFLAGS) $< -o $@
 
+#Compile disk (C)
+$(OUTPUT_FOLDER)/disk.o: $(SOURCE_FOLDER)/disk.c
+	$(CC) $(CFLAGS) $< -o $@
+
 # Compile string (C)
 $(OUTPUT_FOLDER)/string.o: $(SOURCE_FOLDER)/string.c
 	$(CC) $(CFLAGS) $< -o $@
 
-# Compile disk (C)
-$(OUTPUT_FOLDER)/disk.o: $(SOURCE_FOLDER)/disk.c
+# Compile ext2 (C)
+$(OUTPUT_FOLDER)/ext2.o: $(SOURCE_FOLDER)/ext2.c
 	$(CC) $(CFLAGS) $< -o $@
+
+# Compile test_ext2 (C)
+$(OUTPUT_FOLDER)/test_ext2.o: $(SOURCE_FOLDER)/test_ext2.c 
+	$(CC) $(CFLAGS) $< -o $@   
 
 # Link Semua Object Files
 $(OUTPUT_FOLDER)/kernel: $(OBJS)
 	@$(LIN) $(LFLAGS) $(OBJS) -o $@
 	@echo "Linking object files and generating ELF32 kernel..."
+
+
+
 
 # Generate ISO
 iso: $(OUTPUT_FOLDER)/kernel
@@ -118,4 +133,6 @@ iso: $(OUTPUT_FOLDER)/kernel
 		-boot-info-table                \
 		-o $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
 		$(OUTPUT_FOLDER)/iso
+
+#buat run make make disk
 
