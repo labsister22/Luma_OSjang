@@ -29,13 +29,16 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/keyboard.o	\
 	   $(OUTPUT_FOLDER)/disk.o	\
        $(OUTPUT_FOLDER)/intsetups.o	\
-       $(OUTPUT_FOLDER)/string.o
+       $(OUTPUT_FOLDER)/string.o \
+			 $(OUTPUT_FOLDER)/ext2.o
 
 
 # Run QEMU
-run: all
-	@qemu-system-i386 -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
-	@qemu-system-i386 -s -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+run: all disk
+	@qemu-system-i386 -drive file=bin/sample-image.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+
+
+
 
 # Build All
 all: build
@@ -90,6 +93,10 @@ $(OUTPUT_FOLDER)/keyboard.o: $(SOURCE_FOLDER)/keyboard.c
 
 #Compile disk (C)
 $(OUTPUT_FOLDER)/disk.o: $(SOURCE_FOLDER)/disk.c
+	$(CC) $(CFLAGS) $< -o $@
+
+#Compile EXT2 (C)
+$(OUTPUT_FOLDER)/ext2.o: $(SOURCE_FOLDER)/ext2.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Compile string (C)

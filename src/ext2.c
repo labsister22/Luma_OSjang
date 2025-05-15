@@ -94,6 +94,36 @@ const uint8_t fs_signature[BLOCK_SIZE] = {
     [BLOCK_SIZE - 1] = 'k',
 };
 
+/* ---------------- REGULAR FUNCTION IMPLEMENTATION ---------------- */
+
+char *get_entry_name(void *entry)
+{
+  return (char *)entry + sizeof(struct EXT2DirectoryEntry);
+}
+
+struct EXT2DirectoryEntry *get_directory_entry(void *ptr, uint32_t offset)
+{
+  return (struct EXT2DirectoryEntry *)((uint8_t *)ptr + offset);
+}
+
+struct EXT2DirectoryEntry *get_next_directory_entry(struct EXT2DirectoryEntry *entry)
+{
+  return (struct EXT2DirectoryEntry *)((uint8_t *)entry + entry->rec_len);
+}
+
+uint16_t get_entry_record_len(uint8_t name_len)
+{
+  uint16_t base_size = sizeof(struct EXT2DirectoryEntry) + name_len;
+  // align 4 bytes
+  return (base_size + 3) & ~3;
+}
+
+uint32_t get_dir_first_child_offset(void *ptr)
+{
+  struct EXT2DirectoryEntry *first_entry = get_directory_entry(ptr, 0);
+  return first_entry->rec_len;
+}
+
 /* =================== MAIN FUNCTION OF EXT32 FILESYSTEM ============================*/
 
 /**
