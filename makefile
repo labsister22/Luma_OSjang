@@ -30,15 +30,15 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
 	   $(OUTPUT_FOLDER)/disk.o	\
        $(OUTPUT_FOLDER)/intsetups.o	\
        $(OUTPUT_FOLDER)/string.o \
-			 $(OUTPUT_FOLDER)/ext2.o
+	   $(OUTPUT_FOLDER)/ext2.o \
+	   $(OUTPUT_FOLDER)/test_ext2.o
 
 
 # Run QEMU
-run: all disk
-	@qemu-system-i386 -drive file=bin/sample-image.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
-
-
-
+run: all
+	@mkdir -p disk
+	@cp bin/sample-image.bin bin/storage.bin
+	@qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
 
 # Build All
 all: build
@@ -49,11 +49,12 @@ build: iso
 clean:
 
 	rm -rf $(OBJS) $(OUTPUT_FOLDER)/kernel $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
-		$(OUTPUT_FOLDER)/iso
+		$(OUTPUT_FOLDER)/iso $(OUTPUT_FOLDER)/storage.bin
+
 # Disk
 disk:
-	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 4M
-
+	@mkdir -p disk
+	@qemu-img create -f raw bin/storage.bin 4M
 # Compile Kernel Entry Point (Assembly)
 $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 	@$(ASM) $(AFLAGS) $< -o $@
@@ -101,8 +102,15 @@ $(OUTPUT_FOLDER)/ext2.o: $(SOURCE_FOLDER)/ext2.c
 
 # Compile string (C)
 $(OUTPUT_FOLDER)/string.o: $(SOURCE_FOLDER)/string.c
-
 	$(CC) $(CFLAGS) $< -o $@
+
+# Compile ext2 (C)
+$(OUTPUT_FOLDER)/ext2.o: $(SOURCE_FOLDER)/ext2.c
+	$(CC) $(CFLAGS) $< -o $@
+
+# Compile test_ext2 (C)
+$(OUTPUT_FOLDER)/test_ext2.o: $(SOURCE_FOLDER)/test_ext2.c 
+	$(CC) $(CFLAGS) $< -o $@   
 
 # Link Semua Object Files
 $(OUTPUT_FOLDER)/kernel: $(OBJS)
