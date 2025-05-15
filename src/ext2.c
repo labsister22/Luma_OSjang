@@ -1,4 +1,5 @@
 
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -8,204 +9,231 @@
 
 static struct EXT2Superblock superblock;
 struct EXT2BlockGroupDescriptorTable bgd_table;
- uint32_t ceil_div(uint32_t a, uint32_t b) {
+uint32_t ceil_div(uint32_t a, uint32_t b)
+{
   return (a + b - 1) / b;
 }
 
- bool is_inode_used(uint32_t inode) {
+bool is_inode_used(uint32_t inode)
+{
   uint32_t group = (inode - 1) / INODES_PER_GROUP;
   uint32_t local_inode = (inode - 1) % INODES_PER_GROUP;
   uint32_t byte_offset = local_inode / 8;
   uint32_t bit_offset = local_inode % 8;
-  
+
   struct BlockBuffer buffer;
   read_blocks(&buffer, bgd_table.table[group].bg_inode_bitmap, 1);
   return (buffer.buf[byte_offset] & (1 << bit_offset)) != 0;
 }
 
- void set_inode_used(uint32_t inode) {
+void set_inode_used(uint32_t inode)
+{
   uint32_t group = (inode - 1) / INODES_PER_GROUP;
   uint32_t local_inode = (inode - 1) % INODES_PER_GROUP;
   uint32_t byte_offset = local_inode / 8;
   uint32_t bit_offset = local_inode % 8;
-  
+
   struct BlockBuffer buffer;
   read_blocks(&buffer, bgd_table.table[group].bg_inode_bitmap, 1);
   buffer.buf[byte_offset] |= (1 << bit_offset);
   write_blocks(&buffer, bgd_table.table[group].bg_inode_bitmap, 1);
 }
 
- void clear_inode_used(uint32_t inode) {
+void clear_inode_used(uint32_t inode)
+{
   uint32_t group = (inode - 1) / INODES_PER_GROUP;
   uint32_t local_inode = (inode - 1) % INODES_PER_GROUP;
   uint32_t byte_offset = local_inode / 8;
   uint32_t bit_offset = local_inode % 8;
-  
+
   struct BlockBuffer buffer;
   read_blocks(&buffer, bgd_table.table[group].bg_inode_bitmap, 1);
   buffer.buf[byte_offset] &= ~(1 << bit_offset);
   write_blocks(&buffer, bgd_table.table[group].bg_inode_bitmap, 1);
 }
 
- int32_t allocate_block(uint32_t preferred_bgd) {
-  for (uint32_t i = 0; i < GROUPS_COUNT; i++) {
-      uint32_t group = (preferred_bgd + i) % GROUPS_COUNT;
-      struct BlockBuffer buffer;
-      read_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
-      
-      for (uint32_t j = 0; j < BLOCK_SIZE * 8; j++) {
-          uint32_t byte_offset = j / 8;
-          uint32_t bit_offset = j % 8;
-          
-          if (!(buffer.buf[byte_offset] & (1 << bit_offset))) {
-              buffer.buf[byte_offset] |= (1 << bit_offset);
-              write_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
-              
-              return group * BLOCKS_PER_GROUP + j;
-          }
+int32_t allocate_block(uint32_t preferred_bgd)
+{
+  for (uint32_t i = 0; i < GROUPS_COUNT; i++)
+  {
+    uint32_t group = (preferred_bgd + i) % GROUPS_COUNT;
+    struct BlockBuffer buffer;
+    read_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
+
+    for (uint32_t j = 0; j < BLOCK_SIZE * 8; j++)
+    {
+      uint32_t byte_offset = j / 8;
+      uint32_t bit_offset = j % 8;
+
+      if (!(buffer.buf[byte_offset] & (1 << bit_offset)))
+      {
+        buffer.buf[byte_offset] |= (1 << bit_offset);
+        write_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
+
+        return group * BLOCKS_PER_GROUP + j;
       }
+    }
   }
-  return -1;  // No free blocks found
+  return -1; // No free blocks found
 }
 
- void sync_superblock(void) {
+void sync_superblock(void)
+{
   write_blocks(&superblock, 1, 1);
   write_blocks(&bgd_table, 2, 1);
 }
 
- void add_inode_to_dir(struct EXT2Inode *dir_inode, uint32_t inode, const char *name) {
+void add_inode_to_dir(struct EXT2Inode *dir_inode, uint32_t inode, const char *name)
+{
   uint8_t buf[BLOCK_SIZE];
   read_blocks(buf, dir_inode->i_block[0], 1);
-  
+
   uint32_t offset = 0;
   struct EXT2DirectoryEntry *entry;
-  
-  while (offset < BLOCK_SIZE) {
-      entry = get_directory_entry(buf, offset);
-      if (entry->inode == 0 || offset + entry->rec_len >= BLOCK_SIZE)
-          break;
-      offset += entry->rec_len;
+
+  while (offset < BLOCK_SIZE)
+  {
+    entry = get_directory_entry(buf, offset);
+    if (entry->inode == 0 || offset + entry->rec_len >= BLOCK_SIZE)
+      break;
+    offset += entry->rec_len;
   }
-  
+
   entry->inode = inode;
   entry->name_len = strlen(name);
   entry->file_type = EXT2_FT_REG_FILE;
   entry->rec_len = BLOCK_SIZE - offset;
-  
+
   char *entry_name = get_entry_name(entry);
   memcpy(entry_name, name, entry->name_len);
-  
+
   write_blocks(buf, dir_inode->i_block[0], 1);
 }
 
- bool is_empty_directory(struct EXT2Inode *inode) {
+bool is_empty_directory(struct EXT2Inode *inode)
+{
   uint8_t buf[BLOCK_SIZE];
   read_blocks(buf, inode->i_block[0], 1);
-  
+
   uint32_t offset = get_dir_first_child_offset(buf);
   struct EXT2DirectoryEntry *entry = get_directory_entry(buf, offset);
-  
+
   return entry->inode == 0 || offset >= BLOCK_SIZE;
 }
 
- void remove_inode_from_dir(struct EXT2Inode *dir_inode, const char *name) {
+void remove_inode_from_dir(struct EXT2Inode *dir_inode, const char *name)
+{
   uint8_t buf[BLOCK_SIZE];
   read_blocks(buf, dir_inode->i_block[0], 1);
-  
+
   uint32_t offset = 0;
   struct EXT2DirectoryEntry *prev_entry = NULL;
   struct EXT2DirectoryEntry *entry;
-  
-  while (offset < BLOCK_SIZE) {
-      entry = get_directory_entry(buf, offset);
-      if (entry->inode != 0) {
-          char *entry_name = get_entry_name(entry);
-          if (strlen(name) == entry->name_len && 
-              memcmp(entry_name, name, entry->name_len) == 0) {
-              if (prev_entry)
-                  prev_entry->rec_len += entry->rec_len;
-              entry->inode = 0;
-              break;
-          }
+
+  while (offset < BLOCK_SIZE)
+  {
+    entry = get_directory_entry(buf, offset);
+    if (entry->inode != 0)
+    {
+      char *entry_name = get_entry_name(entry);
+      if (strlen(name) == entry->name_len &&
+          memcmp(entry_name, name, entry->name_len) == 0)
+      {
+        if (prev_entry)
+          prev_entry->rec_len += entry->rec_len;
+        entry->inode = 0;
+        break;
       }
-      prev_entry = entry;
-      offset += entry->rec_len;
+    }
+    prev_entry = entry;
+    offset += entry->rec_len;
   }
-  
+
   write_blocks(buf, dir_inode->i_block[0], 1);
 }
- bool find_dir(uint32_t inode, uint32_t *out_inode_idx) {
+bool find_dir(uint32_t inode, uint32_t *out_inode_idx)
+{
   struct EXT2Inode target_inode;
   read_inode(inode, &target_inode);
-  if (!is_directory(&target_inode)) {
-      return false;
+  if (!is_directory(&target_inode))
+  {
+    return false;
   }
   *out_inode_idx = inode;
   return true;
 }
 
- bool find_inode_in_dir(struct EXT2Inode *dir_inode, const char *name, uint32_t *out_inode) {
+bool find_inode_in_dir(struct EXT2Inode *dir_inode, const char *name, uint32_t *out_inode)
+{
   uint8_t buf[BLOCK_SIZE];
   read_blocks(buf, dir_inode->i_block[0], 1);
-  
+
   uint32_t offset = 0;
-  while (offset < BLOCK_SIZE) {
-      struct EXT2DirectoryEntry *entry = get_directory_entry(buf, offset);
-      if (entry->inode != 0) {
-          char *entry_name = get_entry_name(entry);
-          if (strlen(name) == entry->name_len && 
-              memcmp(entry_name, name, entry->name_len) == 0) {
-              *out_inode = entry->inode;
-              return true;
-          }
+  while (offset < BLOCK_SIZE)
+  {
+    struct EXT2DirectoryEntry *entry = get_directory_entry(buf, offset);
+    if (entry->inode != 0)
+    {
+      char *entry_name = get_entry_name(entry);
+      if (strlen(name) == entry->name_len &&
+          memcmp(entry_name, name, entry->name_len) == 0)
+      {
+        *out_inode = entry->inode;
+        return true;
       }
-      offset += entry->rec_len;
+    }
+    offset += entry->rec_len;
   }
   return false;
 }
 
- bool is_directory(struct EXT2Inode *inode) {
+bool is_directory(struct EXT2Inode *inode)
+{
   return (inode->i_mode & EXT2_S_IFDIR) == EXT2_S_IFDIR;
 }
 
- void read_inode(uint32_t inode, struct EXT2Inode *out_inode) {
+void read_inode(uint32_t inode, struct EXT2Inode *out_inode)
+{
   uint32_t group = (inode - 1) / superblock.s_inodes_per_group;
   uint32_t local_inode = (inode - 1) % superblock.s_inodes_per_group;
-  
+
   struct EXT2InodeTable inode_table;
   read_blocks(&inode_table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
   *out_inode = inode_table.table[local_inode];
 }
 
- void read_inode_data(struct EXT2Inode *inode, void *buf, uint32_t size) {
+void read_inode_data(struct EXT2Inode *inode, void *buf, uint32_t size)
+{
   uint32_t bytes_read = 0;
   uint32_t block_idx = 0;
-  
-  while (bytes_read < size && block_idx < inode->i_blocks) {
-      uint8_t block_buf[BLOCK_SIZE];
-      read_blocks(block_buf, inode->i_block[block_idx], 1);
-      
-      uint32_t to_read = size - bytes_read;
-      if (to_read > BLOCK_SIZE) to_read = BLOCK_SIZE;
-      
-      memcpy(buf + bytes_read, block_buf, to_read);
-      bytes_read += to_read;
-      block_idx++;
+
+  while (bytes_read < size && block_idx < inode->i_blocks)
+  {
+    uint8_t block_buf[BLOCK_SIZE];
+    read_blocks(block_buf, inode->i_block[block_idx], 1);
+
+    uint32_t to_read = size - bytes_read;
+    if (to_read > BLOCK_SIZE)
+      to_read = BLOCK_SIZE;
+
+    memcpy(buf + bytes_read, block_buf, to_read);
+    bytes_read += to_read;
+    block_idx++;
   }
 }
 
- void set_block_free(uint32_t block) {
+void set_block_free(uint32_t block)
+{
   uint32_t group = block / superblock.s_blocks_per_group;
   uint32_t local_block = block % superblock.s_blocks_per_group;
   uint32_t byte_offset = local_block / 8;
   uint32_t bit_offset = local_block % 8;
-  
+
   struct BlockBuffer buffer;
   read_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
   buffer.buf[byte_offset] &= ~(1 << bit_offset);
   write_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
 }
-
 
 const uint8_t fs_signature[BLOCK_SIZE] = {
     'C',
@@ -292,36 +320,6 @@ const uint8_t fs_signature[BLOCK_SIZE] = {
     [BLOCK_SIZE - 1] = 'k',
 };
 
-/* ---------------- REGULAR FUNCTION IMPLEMENTATION ---------------- */
-
-char *get_entry_name(void *entry)
-{
-  return (char *)entry + sizeof(struct EXT2DirectoryEntry);
-}
-
-struct EXT2DirectoryEntry *get_directory_entry(void *ptr, uint32_t offset)
-{
-  return (struct EXT2DirectoryEntry *)((uint8_t *)ptr + offset);
-}
-
-struct EXT2DirectoryEntry *get_next_directory_entry(struct EXT2DirectoryEntry *entry)
-{
-  return (struct EXT2DirectoryEntry *)((uint8_t *)entry + entry->rec_len);
-}
-
-uint16_t get_entry_record_len(uint8_t name_len)
-{
-  uint16_t base_size = sizeof(struct EXT2DirectoryEntry) + name_len;
-  // align 4 bytes
-  return (base_size + 3) & ~3;
-}
-
-uint32_t get_dir_first_child_offset(void *ptr)
-{
-  struct EXT2DirectoryEntry *first_entry = get_directory_entry(ptr, 0);
-  return first_entry->rec_len;
-}
-
 /* =================== MAIN FUNCTION OF EXT32 FILESYSTEM ============================*/
 
 /**
@@ -375,7 +373,6 @@ void init_directory_table(struct EXT2Inode *node, uint32_t inode, uint32_t paren
   parent_name[1] = '.';
 
   write_blocks(buf, node->i_block[0], 1);
-
 }
 /**
  * @brief check whether filesystem signature is missing or not in boot sector
@@ -691,10 +688,10 @@ void deallocate_blocks(void *loc, uint32_t blocks)
  * @return new last bgd
  */
 uint32_t deallocate_block(uint32_t *locations, uint32_t blocks,
-  struct BlockBuffer *bitmap __attribute__((unused)),
-  uint32_t depth __attribute__((unused)),
-  uint32_t *last_bgd,
-  bool bgd_loaded __attribute__((unused)))
+                          struct BlockBuffer *bitmap __attribute__((unused)),
+                          uint32_t depth __attribute__((unused)),
+                          uint32_t *last_bgd,
+                          bool bgd_loaded __attribute__((unused)))
 {
   for (uint32_t i = 0; i < blocks; i++)
   {
@@ -739,34 +736,40 @@ void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_b
  * @param node pointer of node
  * @param inode location of the node
  */
-void sync_node(struct EXT2Inode *node, uint32_t inode){
-    uint32_t group = inode / INODES_PER_GROUP;
-    uint32_t offset = inode % INODES_PER_GROUP;
-    struct EXT2InodeTable table;
-    read_blocks(&table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
-    table.table[offset] = *node;
-    write_blocks(&table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
+void sync_node(struct EXT2Inode *node, uint32_t inode)
+{
+  uint32_t group = inode / INODES_PER_GROUP;
+  uint32_t offset = inode % INODES_PER_GROUP;
+  struct EXT2InodeTable table;
+  read_blocks(&table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
+  table.table[offset] = *node;
+  write_blocks(&table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
 }
 
-char *get_entry_name(void *entry) {
+char *get_entry_name(void *entry)
+{
   return (char *)entry + sizeof(struct EXT2DirectoryEntry);
 }
 
-struct EXT2DirectoryEntry *get_directory_entry(void *ptr, uint32_t offset) {
+struct EXT2DirectoryEntry *get_directory_entry(void *ptr, uint32_t offset)
+{
   return (struct EXT2DirectoryEntry *)((uint8_t *)ptr + offset);
 }
 
-struct EXT2DirectoryEntry *get_next_directory_entry(struct EXT2DirectoryEntry *entry) {
+struct EXT2DirectoryEntry *get_next_directory_entry(struct EXT2DirectoryEntry *entry)
+{
   return (struct EXT2DirectoryEntry *)((uint8_t *)entry + entry->rec_len);
 }
 
-uint16_t get_entry_record_len(uint8_t name_len) {
+uint16_t get_entry_record_len(uint8_t name_len)
+{
   uint16_t base_size = sizeof(struct EXT2DirectoryEntry) + name_len;
   // align 4 bytes
   return (base_size + 3) & ~3;
 }
 
-uint32_t get_dir_first_child_offset(void *ptr) {
+uint32_t get_dir_first_child_offset(void *ptr)
+{
   struct EXT2DirectoryEntry *first_entry = get_directory_entry(ptr, 0);
   return first_entry->rec_len;
 }
