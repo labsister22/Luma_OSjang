@@ -31,7 +31,8 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/intsetups.o	\
        $(OUTPUT_FOLDER)/string.o \
 	   $(OUTPUT_FOLDER)/ext2.o \
-	   $(OUTPUT_FOLDER)/test_ext2.o
+	   $(OUTPUT_FOLDER)/test_ext2.o \
+	   $(OUTPUT_FOLDER)/paging.o
 
 
 # Run QEMU
@@ -107,6 +108,10 @@ $(OUTPUT_FOLDER)/ext2.o: $(SOURCE_FOLDER)/ext2.c
 # Compile test_ext2 (C)
 $(OUTPUT_FOLDER)/test_ext2.o: $(SOURCE_FOLDER)/test_ext2.c 
 	$(CC) $(CFLAGS) $< -o $@   
+
+# Compile paging (C)
+$(OUTPUT_FOLDER)/paging.o: $(SOURCE_FOLDER)/paging.c
+	$(CC) $(CFLAGS) $< -o $@
 
 # Link Semua Object Files
 $(OUTPUT_FOLDER)/kernel: $(OBJS)
