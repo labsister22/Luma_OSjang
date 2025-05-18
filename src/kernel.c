@@ -27,6 +27,14 @@ void kernel_setup(void)
   // Allocate first 4 MiB virtual memory
   paging_allocate_user_page_frame(&_paging_kernel_page_directory, (uint8_t *)0);
 
+  // Debugging
+  framebuffer_write(0, 0, 'R', 0x0F, 0x00);
+  framebuffer_write(0, 1, 'E', 0x0F, 0x00);
+  framebuffer_write(0, 2, 'A', 0x0F, 0x00);
+  framebuffer_write(0, 3, 'D', 0x0F, 0x00);
+  framebuffer_write(0, 4, 'Y', 0x0F, 0x00);
+  framebuffer_write(0, 5, 'Y', 0x0F, 0x00);
+
   // Write shell into memory
   struct EXT2DriverRequest request = {
       .buf = (uint8_t *)0,
