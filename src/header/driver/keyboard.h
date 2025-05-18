@@ -60,5 +60,6 @@ void get_keyboard_buffer(char *buf);
  * Will start listen and process keyboard scancode if keyboard_input_on.
  */
 void keyboard_isr(void);
+void handle_backspace();
 
 #endif
