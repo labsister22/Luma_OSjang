@@ -1,37 +1,39 @@
 ENTRY(loader)                /* the name of the entry label */
-/* Relocation address 0xC0010000, but load address (physical location) 0x100000 */
+
 SECTIONS {
-    . = 0xC0100000;          /* use relocation address at 0xC0100000 */
-    /* Linker variable that can be used in kernel */
-    _linker_kernel_virtual_addr_start  = .; 
-    _linker_kernel_physical_addr_start = . - 0xC0000000; 
-    .multiboot ALIGN (0x1000) : AT (ADDR (.multiboot) - 0xC0000000) {
-        *(.multiboot)        /* put GRUB multiboot header at front */
-    }
+    . = 0x00100000;          /* the code should be loaded at 1 MB */
 
-    .setup.text ALIGN (0x1000) : AT (ADDR (.setup.text) - 0xC0000000) {
-        *(.setup.text)       /* initial setup code */
-    }
+    .multiboot ALIGN (0x1000) :   /* align at 4 KB */
+    {
+        *(.multiboot)        /* GRUB multiboot header */
+    } :text
 
-    .text ALIGN (0x1000) : AT (ADDR (.text) - 0xC0000000) {
+    .text ALIGN (0x1000) :   /* align at 4 KB */
+    {
         *(.text)             /* all text sections from all files */
-    }
+    } :text
 
-    .rodata ALIGN (0x1000) : AT (ADDR (.rodata) - 0xC0000000) {
+    .rodata ALIGN (0x1000) : /* align at 4 KB */
+    {
         *(.rodata*)          /* all read-only data sections from all files */
-    }
+    } :rodata
 
-    .data ALIGN (0x1000) : AT (ADDR (.data) - 0xC0000000) {
+    .data ALIGN (0x1000) :   /* align at 4 KB */
+    {
         *(.data)             /* all data sections from all files */
-    }
+    } :data
 
-    .bss ALIGN (0x1000) : AT (ADDR (.bss) - 0xC0000000) {
+    .bss ALIGN (0x1000) :    /* align at 4 KB */
+    {
         *(COMMON)            /* all COMMON sections from all files */
         *(.bss)              /* all bss sections from all files */
-        bin/kernel-entrypoint.o(.bss)
-        _linker_kernel_stack_top = .;
-    }
-    /* Linker variable that can be used in kernel */
-    _linker_kernel_virtual_addr_end  = .;
-    _linker_kernel_physical_addr_end = . - 0xC0000000;
+    } :bss
+}
+
+/* Definisikan header segmen dengan hak akses yang benar */
+PHDRS {
+    text PT_LOAD FLAGS(5);   /* Read & Execute (R-X) */
+    rodata PT_LOAD FLAGS(4); /* Read-only (R--) */
+    data PT_LOAD FLAGS(6);   /* Read & Write (RW-) */
+    bss PT_LOAD FLAGS(6);    /* Read & Write (RW-) */
 }
