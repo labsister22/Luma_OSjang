@@ -6,64 +6,73 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void test_block_boundaries(void) {
+void test_block_boundaries(void)
+{
     // First read the existing data to avoid corrupting the sample image
     struct BlockBuffer original;
     read_blocks(&original, 0, 1);
-    
+
     // Make a backup before testing
     struct BlockBuffer backup = original;
-    
+
     // Perform tests on a safe block (not 0 or 1 which might contain critical data)
     struct BlockBuffer buffer;
     buffer.buf[0] = 0xAA;
-    write_blocks(&buffer, 17, 1);  // Use block 17 instead of 0
-    
+    write_blocks(&buffer, 17, 1); // Use block 17 instead of 0
+
     // Verify
     struct BlockBuffer verify;
     read_blocks(&verify, 17, 1);
-    if (verify.buf[0] != 0xAA) {
+    if (verify.buf[0] != 0xAA)
+    {
         framebuffer_write(0, 0, 'F', 0xF, 0x0);
-    } else {
+    }
+    else
+    {
         framebuffer_write(0, 0, 'P', 0xF, 0x0);
     }
-    
+
     // Restore original data
     write_blocks(&backup, 17, 1);
 }
 
-void test_directory_operations(void) {
+void test_directory_operations(void)
+{
     // Create test directory
     struct EXT2DriverRequest request = {
-        .parent_inode = 1,  // Root directory
+        .parent_inode = 1, // Root directory
         .name = "test_dir",
         .name_len = 8,
-        .buffer_size = 0,   // Directory
-        .is_directory = true
-    };
-    
-    int8_t status = write(&request);
-    if (status != 0) {
+        .buffer_size = 0, // Directory
+        .is_directory = true};
+
+    int8_t status = write(request);
+    if (status != 0)
+    {
         framebuffer_write(0, 1, 'F', 0xF, 0x0);
         return;
     }
-    
+
     // Try reading it back
     status = read_directory(&request);
-    if (status == 0) {
+    if (status == 0)
+    {
         framebuffer_write(0, 1, 'P', 0xF, 0x0);
-    } else {
+    }
+    else
+    {
         framebuffer_write(0, 1, 'F', 0xF, 0x0);
     }
 }
 
 // Add this to your kernel.c to run test
 
-void run_ext2_tests(void) {
+void run_ext2_tests(void)
+{
     // Run all filesystem tests
     test_block_boundaries();
     test_directory_operations();
-    
+
     // Print test completion message
     framebuffer_write(0, 2, 'T', 0xF, 0x0);
     framebuffer_write(0, 3, 'e', 0xF, 0x0);

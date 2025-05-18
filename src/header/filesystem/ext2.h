@@ -44,7 +44,7 @@
 struct EXT2DriverRequest
 {
   void *buf;
-  char *name;
+  char name[256];
   uint8_t name_len;
   uint32_t parent_inode;
   uint32_t buffer_size;
@@ -321,7 +321,7 @@ int8_t read(struct EXT2DriverRequest request);
  * @param All attribute will be used for write except is_dir, buffer_size == 0 then create a folder / directory. It is possible that exist file with name same as a folder
  * @return Error code: 0 success - 1 file/folder already exist - 2 invalid parent folder - -1 unknown
  */
-int8_t write(struct EXT2DriverRequest *request);
+int8_t write(struct EXT2DriverRequest request);
 
 /**
  * @brief EXT2 delete, delete a file or empty directory in file system
@@ -376,6 +376,7 @@ uint32_t deallocate_block(uint32_t *locations, uint32_t blocks, struct BlockBuff
  * @attention only implement until doubly indirect block, if you want to implement triply indirect block please increase the storage size to at least 256MB
  */
 void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_bgd);
+int8_t read_directory(struct EXT2DriverRequest *request);
 
 /**
  * @brief update the node to the disk
