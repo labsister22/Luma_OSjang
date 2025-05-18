@@ -12,7 +12,7 @@ SECTIONS {
         *(.data)
     }
 
-    .bss ALIGN(4): { /* 9 May Edit: Fixes for static storage variables */
+    .bss ALIGN(4): {
         *(COMMON)
         *(.bss)
     }

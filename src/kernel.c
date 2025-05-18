@@ -10,16 +10,7 @@
 #include "header/driver/disk.h"
 #include "header/filesystem/ext2.h"
 #include "header/filesystem/test_ext2.h"
-
-// void kernel_setup(void) {
-//     framebuffer_write(0, 0, 'L', 0xF, 0x0);
-//     framebuffer_write(0, 1, 'u', 0xF, 0x0);
-//     framebuffer_write(0, 2, 'm', 0xF, 0x0);
-//     framebuffer_write(0, 3, 'a', 0xF, 0x0);
-//     framebuffer_write(0, 4, ' ', 0xF, 0x0);
-//     framebuffer_write(0, 5, 'O', 0xF, 0x0);
-//     framebuffer_write(0, 6, 'S', 0xF, 0x0);
-// }
+#include "header/memory/paging.h"
 
 void kernel_setup(void)
 {
@@ -27,50 +18,29 @@ void kernel_setup(void)
   pic_remap();
   initialize_idt();
   activate_keyboard_interrupt();
-  asm volatile("sti");
   framebuffer_clear();
   framebuffer_set_cursor(0, 0);
-
-  int row = 0, col = 0;
-  keyboard_state_activate();
-  // struct BlockBuffer b;
-  // framebuffer_write(0, 0, 'L', 0xF, 0x0);
-  // for (int i = 0; i < 512; i++) {b.buf[i] = i % 16;}
-  // write_blocks(&b, 17, 1);
-  // framebuffer_write(0, 0, 'L', 0xF, 0x0);
   initialize_filesystem_ext2();
-  run_ext2_tests();
+  gdt_install_tss();
+  set_tss_register();
+
+  // Allocate first 4 MiB virtual memory
+  paging_allocate_user_page_frame(&_paging_kernel_page_directory, (uint8_t *)0);
+
+  // Write shell into memory
+  struct EXT2DriverRequest request = {
+      .buf = (uint8_t *)0,
+      .name = "shell",
+      .parent_inode = 1,
+      .buffer_size = 0x100000,
+      .name_len = 5,
+  };
+  read(request);
+
+  // Set TSS $esp pointer and jump into shell
+  set_tss_kernel_current_stack();
+  kernel_execute_user_program((uint8_t *)0);
 
   while (true)
-  {
-    char c;
-    get_keyboard_buffer(&c);
-    if (c)
-    {
-      framebuffer_write(row, col, c, 0xF, 0);
-      if (col >= FRAMEBUFFER_WIDTH)
-      {
-        ++row;
-        col = 0;
-      }
-      else
-      {
-        ++col;
-      }
-      framebuffer_set_cursor(row, col);
-    }
-  }
+    ;
 }
-// void kernel_setup(void) {
-//   load_gdt(&_gdt_gdtr);
-//   pic_remap();
-//   activate_keyboard_interrupt();
-//   initialize_idt();
-//   framebuffer_clear();
-//   framebuffer_set_cursor(0, 0);
-
-//   struct BlockBuffer b;
-//   for (int i = 0; i < 512; i++) {b.buf[i] = i % 16;}
-//   write_blocks(&b, 17, 1);
-//   while (true);
-// }
