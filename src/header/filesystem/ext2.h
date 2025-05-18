@@ -376,6 +376,7 @@ uint32_t deallocate_block(uint32_t *locations, uint32_t blocks, struct BlockBuff
  * @attention only implement until doubly indirect block, if you want to implement triply indirect block please increase the storage size to at least 256MB
  */
 void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_bgd);
+int8_t read_directory(struct EXT2DriverRequest *request);
 
 /**
  * @brief update the node to the disk

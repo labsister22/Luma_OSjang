@@ -6,6 +6,12 @@
 #include "header/filesystem/ext2.h"
 #include "header/driver/disk.h"
 
+#ifdef DEBUG_MODE
+  #define DEBUG_PRINT(...) printf(__VA_ARGS__)
+#else
+  #define DEBUG_PRINT(...) ((void)0)
+#endif
+
 static struct EXT2Superblock superblock;
 struct EXT2BlockGroupDescriptorTable bgd_table;
 
@@ -99,31 +105,31 @@ void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_b
 
 int8_t write(struct EXT2DriverRequest request) {
     // Validasi input
-    printf("DEBUG write: Entering function\n");
-    printf("DEBUG write: name_len=%u, buffer_size=%u\n", 
+    DEBUG_PRINT("DEBUG write: Entering function\n");
+    DEBUG_PRINT("DEBUG write: name_len=%u, buffer_size=%u\n", 
            request.name_len, request.buffer_size);
     
     // Perbaikan: Validasi name dengan lebih tepat
-    if (request.name_len == 0 || request.name_len > 255) {
-        printf("Error: Invalid filename length\n");
+    if (request.name_len == 0 || request.name_len >= 254) {
+        DEBUG_PRINT("Error: Invalid filename length\n");
         return -1;
     }
     
     // Pastikan name tidak kosong dengan memeriksa karakter pertama
     if (request.name[0] == '\0') {
-        printf("Error: Empty filename\n");
+        DEBUG_PRINT("Error: Empty filename\n");
         return -1;
     }
     
     if (request.buffer_size > 0 && request.buf == NULL) {
-        printf("Error: Buffer is NULL but size is non-zero\n");
+        DEBUG_PRINT("Error: Buffer is NULL but size is non-zero\n");
         return -1;
     }
     
     // Cari direktori parent
     uint32_t parent_inode_idx;
     if (!find_dir(request.parent_inode, &parent_inode_idx)) {
-        printf("Error: Parent directory not found\n");
+        DEBUG_PRINT("Error: Parent directory not found\n");
         return 2;
     }
     
@@ -139,25 +145,25 @@ int8_t write(struct EXT2DriverRequest request) {
     // Cek apakah file/direktori dengan nama ini sudah ada
     uint32_t existing_inode;
     if (find_inode_in_dir(&parent_inode, name_copy, &existing_inode)) {
-        printf("Error: File/directory already exists\n");
+        DEBUG_PRINT("Error: File/directory already exists\n");
         return 1;
     }
     
     // Batasi ukuran file untuk mencegah masalah
     uint32_t buffer_size = request.buffer_size;
     if (buffer_size > 12 * BLOCK_SIZE) {
-        printf("Warning: File size limited to %u bytes\n", 12 * BLOCK_SIZE);
+        DEBUG_PRINT("Warning: File size limited to %u bytes\n", 12 * BLOCK_SIZE);
         buffer_size = 12 * BLOCK_SIZE;
     }
     
     // Alokasikan inode baru
     uint32_t new_inode = allocate_node();
     if (new_inode == 0) {
-        printf("Error: Failed to allocate new inode\n");
+        DEBUG_PRINT("Error: Failed to allocate new inode\n");
         return -1;
     }
     
-    printf("DEBUG: Allocated inode %u\n", new_inode);
+    DEBUG_PRINT("DEBUG: Allocated inode %u\n", new_inode);
     
     // Siapkan struktur inode baru
     struct EXT2Inode new_node;
@@ -202,7 +208,7 @@ int8_t write(struct EXT2DriverRequest request) {
     // Sinkronisasi semua perubahan
     sync_superblock();
     
-    printf("DEBUG: Write operation successful\n");
+    DEBUG_PRINT("DEBUG: Write operation successful\n");
     return 0;
 }
 
@@ -599,4 +605,46 @@ int8_t delete(struct EXT2DriverRequest request) {
     
     sync_superblock();
     return 0;
+}
+
+// Tambahkan implementasi fungsi ini di src/ext2.c, sebaiknya di akhir file:
+
+int8_t read_directory(struct EXT2DriverRequest *request) {
+    // Validasi input
+    if (request == NULL || request->name_len == 0) {
+        // Hapus pengecekan request->name == NULL karena name adalah array
+        return -1;
+    }
+    
+    // Cari direktori parent
+    uint32_t parent_inode_idx;
+    if (!find_dir(request->parent_inode, &parent_inode_idx)) {
+        return 3;  // Parent directory not found
+    }
+    
+    // Buat salinan nama untuk mencegah masalah
+    char name_copy[256];
+    memcpy(name_copy, request->name, request->name_len);
+    name_copy[request->name_len] = '\0';  // Pastikan null-terminated
+    
+    // Baca inode direktori parent
+    struct EXT2Inode parent_inode;
+    read_inode(parent_inode_idx, &parent_inode);
+    
+    // Cari inode di direktori
+    uint32_t target_inode;
+    if (!find_inode_in_dir(&parent_inode, name_copy, &target_inode)) {
+        return 4;  // Directory entry not found
+    }
+    
+    // Baca inode target
+    struct EXT2Inode target;
+    read_inode(target_inode, &target);
+    
+    // Verifikasi bahwa ini adalah direktori
+    if (!is_directory(&target)) {
+        return 5;  // Not a directory
+    }
+    
+    return 0;  // Success
 }
