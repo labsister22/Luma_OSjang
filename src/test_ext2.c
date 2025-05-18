@@ -42,7 +42,7 @@ void test_directory_operations(void) {
         .is_directory = true
     };
     
-    int8_t status = write(&request);
+    int8_t status = write(request);
     if (status != 0) {
         framebuffer_write(0, 1, 'F', 0xF, 0x0);
         return;
