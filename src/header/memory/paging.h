@@ -56,12 +56,12 @@ struct PageDirectoryEntry
   uint16_t global_page : 1;
   uint16_t available : 3;
   uint16_t pat_bit : 1;
-  uint16_t reserved_1 : 9;
+  uint16_t reserved_1 : 3;
   uint16_t lower_address : 10;
   uint8_t reserved_2 : 1;
-  uint8_t available_2 : 3;
-  uint8_t higher_address : 4;
-  uint32_t reserved_3 : 24;
+  uint8_t available_2 : 1;
+  uint8_t higher_address : 8;
+  // uint32_t reserved_3 : 24;
 } __attribute__((packed));
 
 /**

@@ -26,8 +26,7 @@ __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_direct
             .lower_address = 0, /* Maps physical 0x00000000-0x00400000 to virtual 0x00000000-0x00400000 */
             .reserved_2 = 0,
             .available_2 = 0,
-            .higher_address = 0,
-            .reserved_3 = 0},
+            .higher_address = 0},
         /* Entry 0x300: Higher-half kernel mapping
            Maps physical 0x00000000-0x00400000 to virtual 0xC0000000-0xC0400000
            This includes framebuffer at 0xB8000 -> 0xC00B8000 */
@@ -48,8 +47,7 @@ __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_direct
                    .lower_address = 0, /* index 0 = 0x00000000 physical address */
                    .reserved_2 = 0,
                    .available_2 = 0,
-                   .higher_address = 0,
-                   .reserved_3 = 0},
+                   .higher_address = 0},
         /* Entry 0x301: Higher-half kernel segment kedua
            Maps physical 0x00400000-0x00800000 to virtual 0xC0400000-0xC0800000 */
         [0x301] = {.flag = {
@@ -69,8 +67,7 @@ __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_direct
                    .lower_address = 1, /* index 1 = 0x00400000 physical address */
                    .reserved_2 = 0,
                    .available_2 = 0,
-                   .higher_address = 0,
-                   .reserved_3 = 0},
+                   .higher_address = 0},
     }};
 
 static struct PageManagerState page_manager_state = {
@@ -99,7 +96,6 @@ void update_page_directory_entry(
   page_dir->table[page_index].reserved_2 = 0;
   page_dir->table[page_index].available_2 = 0;
   page_dir->table[page_index].higher_address = 0;
-  page_dir->table[page_index].reserved_3 = 0;
 
   // Flush TLB for this virtual address
   flush_single_tlb(virtual_addr);
@@ -164,7 +160,6 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
   page_dir->table[page_index].reserved_2 = 0;
   page_dir->table[page_index].available_2 = 0;
   page_dir->table[page_index].higher_address = 0;
-  page_dir->table[page_index].reserved_3 = 0;
 
   flush_single_tlb(virtual_addr);
   return true;
@@ -202,7 +197,6 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
   page_dir->table[page_index].reserved_2 = 0;
   page_dir->table[page_index].available_2 = 0;
   page_dir->table[page_index].higher_address = 0;
-  page_dir->table[page_index].reserved_3 = 0;
 
   flush_single_tlb(virtual_addr);
   return true;
