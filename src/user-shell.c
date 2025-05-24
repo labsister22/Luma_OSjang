@@ -1,5 +1,4 @@
 #include <stdint.h>
-#include "header/shell/user-shell.h"
 #include "header/filesystem/ext2.h"
 
 #define BLOCK_COUNT 16

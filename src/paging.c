@@ -1,43 +1,82 @@
+// filepath: /home/timur/Luma_OSjang/src/paging.c
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include "header/memory/paging.h"
-#include "header/stdlib/string.h"
-
-__attribute__((aligned(0x1000))) static struct PageDirectory page_directory_list[PAGING_DIRECTORY_TABLE_MAX_COUNT] = {0};
-
-static struct
-{
-  bool page_directory_used[PAGING_DIRECTORY_TABLE_MAX_COUNT];
-  int page_dir_free;
-} page_directory_manager = {
-    .page_directory_used = {false},
-    .page_dir_free = PAGING_DIRECTORY_TABLE_MAX_COUNT,
-};
 
 __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_directory = {
     .table = {
+        /* Entry 0: Identity mapping for bootloader and initial boot */
         [0] = {
-            .flag.present_bit = 1,
-            .flag.write_bit = 1,
-            .flag.use_pagesize_4_mb = 1,
-            .lower_address = 0,
-        },
-        [0x300] = {
-            .flag.present_bit = 1,
-            .flag.write_bit = 1,
-            .flag.use_pagesize_4_mb = 1,
-            .lower_address = 0,
-        },
+            .flag = {
+                .present_bit = 1,
+                .write_bit = 1,
+                .user_bit = 0,
+                .write_through_bit = 0,
+                .cache_disable_bit = 0,
+                .accessed_bit = 0,
+                .dirty_bit = 0,
+                .use_pagesize_4_mb = 1,
+            },
+            .global_page = 0,
+            .available = 0,
+            .pat_bit = 0,
+            .reserved_1 = 0,
+            .lower_address = 0, /* Maps physical 0x00000000-0x00400000 to virtual 0x00000000-0x00400000 */
+            .reserved_2 = 0,
+            .available_2 = 0,
+            .higher_address = 0,
+            .reserved_3 = 0},
+        /* Entry 0x300: Higher-half kernel mapping
+           Maps physical 0x00000000-0x00400000 to virtual 0xC0000000-0xC0400000
+           This includes framebuffer at 0xB8000 -> 0xC00B8000 */
+        [0x300] = {.flag = {
+                       .present_bit = 1,
+                       .write_bit = 1,
+                       .user_bit = 0,
+                       .write_through_bit = 0,
+                       .cache_disable_bit = 0,
+                       .accessed_bit = 0,
+                       .dirty_bit = 0,
+                       .use_pagesize_4_mb = 1,
+                   },
+                   .global_page = 0,
+                   .available = 0,
+                   .pat_bit = 0,
+                   .reserved_1 = 0,
+                   .lower_address = 0, /* index 0 = 0x00000000 physical address */
+                   .reserved_2 = 0,
+                   .available_2 = 0,
+                   .higher_address = 0,
+                   .reserved_3 = 0},
+        /* Entry 0x301: Higher-half kernel segment kedua
+           Maps physical 0x00400000-0x00800000 to virtual 0xC0400000-0xC0800000 */
+        [0x301] = {.flag = {
+                       .present_bit = 1,
+                       .write_bit = 1,
+                       .user_bit = 0,
+                       .write_through_bit = 0,
+                       .cache_disable_bit = 0,
+                       .accessed_bit = 0,
+                       .dirty_bit = 0,
+                       .use_pagesize_4_mb = 1,
+                   },
+                   .global_page = 0,
+                   .available = 0,
+                   .pat_bit = 0,
+                   .reserved_1 = 0,
+                   .lower_address = 1, /* index 1 = 0x00400000 physical address */
+                   .reserved_2 = 0,
+                   .available_2 = 0,
+                   .higher_address = 0,
+                   .reserved_3 = 0},
     }};
 
 static struct PageManagerState page_manager_state = {
     .page_frame_map = {
         [0] = true,
         [1 ... PAGE_FRAME_MAX_COUNT - 1] = false},
-    .free_page_frame_count = PAGE_FRAME_MAX_COUNT - 1,
-    .next_free_frame = 1,
-};
+    .free_page_frame_count = PAGE_FRAME_MAX_COUNT - 1};
 
 void update_page_directory_entry(
     struct PageDirectory *page_dir,
@@ -47,7 +86,21 @@ void update_page_directory_entry(
 {
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
   page_dir->table[page_index].flag = flag;
-  page_dir->table[page_index].lower_address = ((uint32_t)physical_addr >> 22) & 0x3FF;
+
+  // Physical address needs to be divided by 4MB to get the page frame number (>> 22)
+  page_dir->table[page_index].lower_address = ((uint32_t)physical_addr) >> 22;
+
+  // Reset other fields to 0 to ensure no old values remain
+  page_dir->table[page_index].global_page = 0;
+  page_dir->table[page_index].available = 0;
+  page_dir->table[page_index].pat_bit = 0;
+  page_dir->table[page_index].reserved_1 = 0;
+  page_dir->table[page_index].reserved_2 = 0;
+  page_dir->table[page_index].available_2 = 0;
+  page_dir->table[page_index].higher_address = 0;
+  page_dir->table[page_index].reserved_3 = 0;
+
+  // Flush TLB for this virtual address
   flush_single_tlb(virtual_addr);
 }
 
@@ -57,93 +110,93 @@ void flush_single_tlb(void *virtual_addr)
 }
 
 /* --- Memory Management --- */
-// TODO: Implement
 bool paging_allocate_check(uint32_t amount)
 {
-  uint32_t req_page = amount / PAGE_FRAME_SIZE;
-  if (amount % PAGE_FRAME_SIZE != 0)
-  {
-    req_page++;
-  }
-  return req_page <= page_manager_state.free_page_frame_count;
+  uint32_t required_frames = (amount + PAGE_FRAME_SIZE - 1) / PAGE_FRAME_SIZE;
+  return page_manager_state.free_page_frame_count >= required_frames;
 }
 
 bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr)
 {
-  /**
-   * TODO: Find free physical frame and map virtual frame into it
-   * - Find free physical frame in page_manager_state.page_frame_map[] using any strategies
-   * - Mark page_manager_state.page_frame_map[]
-   * - Update page directory with user flags:
-   *     > present bit    true
-   *     > write bit      true
-   *     > user bit       true
-   *     > pagesize 4 mb  true
-   */
-  if (page_manager_state.free_page_frame_count == 0)
-  {
-    return false;
-  }
+  uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
 
-  int phy_mem_free = page_manager_state.next_free_frame;
-  uint32_t phy_addr_free = PAGE_FRAME_SIZE * (phy_mem_free);
-  page_manager_state.free_page_frame_count--;
-  page_manager_state.page_frame_map[phy_mem_free] = true;
-
-  for (int i = phy_mem_free + 1; i < PAGE_FRAME_MAX_COUNT; i++)
+  // Find free physical frame
+  uint32_t frame_index;
+  for (frame_index = 0; frame_index < PAGE_FRAME_MAX_COUNT; frame_index++)
   {
-    if (page_manager_state.page_frame_map[i] == false)
-    {
-      page_manager_state.next_free_frame = i;
+    if (!page_manager_state.page_frame_map[frame_index])
       break;
-    }
   }
 
+  if (frame_index >= PAGE_FRAME_MAX_COUNT)
+    return false;
+
+  // Mark frame as used
+  page_manager_state.page_frame_map[frame_index] = true;
+  page_manager_state.free_page_frame_count--;
+
+  // Set user flags
   struct PageDirectoryEntryFlag flag = {
       .present_bit = 1,
       .write_bit = 1,
       .user_bit = 1,
-      .use_pagesize_4_mb = 1,
-  };
-  update_page_directory_entry(
-      page_dir,
-      (void *)phy_addr_free,
-      virtual_addr,
-      flag);
+      .write_through_bit = 0,
+      .cache_disable_bit = 0,
+      .accessed_bit = 0,
+      .dirty_bit = 0,
+      .use_pagesize_4_mb = 1};
+
+  // Update page directory
+  page_dir->table[page_index].flag = flag;
+  page_dir->table[page_index].lower_address = frame_index;
+  page_dir->table[page_index].global_page = 0;
+  page_dir->table[page_index].available = 0;
+  page_dir->table[page_index].pat_bit = 0;
+  page_dir->table[page_index].reserved_1 = 0;
+  page_dir->table[page_index].reserved_2 = 0;
+  page_dir->table[page_index].available_2 = 0;
+  page_dir->table[page_index].higher_address = 0;
+  page_dir->table[page_index].reserved_3 = 0;
+
+  flush_single_tlb(virtual_addr);
   return true;
 }
 
 bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr)
 {
-  /*
-   * TODO: Deallocate a physical frame from respective virtual address
-   * - Use the page_dir.table values to check mapped physical frame
-   * - Remove the entry by setting it into 0
-   */
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
-  uint16_t phy_mapped = page_dir->table[page_index].lower_address;
 
-  if (page_dir->table[page_index].flag.present_bit == 0)
-  {
+  // Check if the page is allocated
+  if (!page_dir->table[page_index].flag.present_bit)
     return false;
-  }
+
+  // Get the physical frame index
+  uint32_t frame_index = page_dir->table[page_index].lower_address;
+
+  // Mark frame as free
+  page_manager_state.page_frame_map[frame_index] = false;
   page_manager_state.free_page_frame_count++;
-  page_manager_state.page_frame_map[phy_mapped] = false;
-  if (page_manager_state.next_free_frame > phy_mapped)
-  {
-    page_manager_state.next_free_frame = phy_mapped;
-  }
-  struct PageDirectoryEntryFlag flag = {
-      .present_bit = 0,
-      .write_bit = 1,
-      .user_bit = 1,
-      .use_pagesize_4_mb = 1,
-  };
-  update_page_directory_entry(
-      page_dir,
-      (void *)0,
-      virtual_addr,
-      flag);
+
+  // Clear page directory entry (set all to 0)
+  page_dir->table[page_index].flag.present_bit = 0;
+  page_dir->table[page_index].flag.write_bit = 0;
+  page_dir->table[page_index].flag.user_bit = 0;
+  page_dir->table[page_index].flag.write_through_bit = 0;
+  page_dir->table[page_index].flag.cache_disable_bit = 0;
+  page_dir->table[page_index].flag.accessed_bit = 0;
+  page_dir->table[page_index].flag.dirty_bit = 0;
+  page_dir->table[page_index].flag.use_pagesize_4_mb = 0;
+  page_dir->table[page_index].global_page = 0;
+  page_dir->table[page_index].available = 0;
+  page_dir->table[page_index].pat_bit = 0;
+  page_dir->table[page_index].reserved_1 = 0;
+  page_dir->table[page_index].lower_address = 0;
+  page_dir->table[page_index].reserved_2 = 0;
+  page_dir->table[page_index].available_2 = 0;
+  page_dir->table[page_index].higher_address = 0;
+  page_dir->table[page_index].reserved_3 = 0;
+
+  flush_single_tlb(virtual_addr);
   return true;
 }
 
