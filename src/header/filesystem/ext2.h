@@ -399,6 +399,8 @@ void sync_superblock(void);
 void add_inode_to_dir(struct EXT2Inode *dir_inode, uint32_t inode, const char *name);
 bool is_empty_directory(struct EXT2Inode *inode);
 void remove_inode_from_dir(struct EXT2Inode *dir_inode, const char *name);
+int8_t update_node_directory(struct EXT2Inode* inode, uint32_t block_idx);
+
 
 
 #endif

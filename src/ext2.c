@@ -12,6 +12,11 @@
 #define DEBUG_PRINT(...) ((void)0)
 #endif
 
+// Tambahkan di atas fungsi write atau di bagian atas ext2.c
+#ifndef S_ISDIR
+#define S_ISDIR(mode)  (((mode) & 0xF000) == 0x4000)
+#endif
+
 static struct EXT2Superblock superblock;
 struct EXT2BlockGroupDescriptorTable bgd_table;
 
@@ -110,127 +115,133 @@ void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_b
   }
 }
 
-int8_t write(struct EXT2DriverRequest request)
-{
-  // Validasi input
-  DEBUG_PRINT("DEBUG write: Entering function\n");
-  DEBUG_PRINT("DEBUG write: name_len=%u, buffer_size=%u\n",
-              request.name_len, request.buffer_size);
+int8_t write(struct EXT2DriverRequest request) {
+    DEBUG_PRINT("DEBUG write: Entering function\n");
+    DEBUG_PRINT("DEBUG write: name_len=%u, buffer_size=%u\n", request.name_len, request.buffer_size);
 
-  // Perbaikan: Validasi name dengan lebih tepat
-  if (request.name_len == 0 || request.name_len >= 254)
-  {
-    DEBUG_PRINT("Error: Invalid filename length\n");
-    return -1;
-  }
-
-  // Pastikan name tidak kosong dengan memeriksa karakter pertama
-  if (request.name[0] == '\0')
-  {
-    DEBUG_PRINT("Error: Empty filename\n");
-    return -1;
-  }
-
-  if (request.buffer_size > 0 && request.buf == NULL)
-  {
-    DEBUG_PRINT("Error: Buffer is NULL but size is non-zero\n");
-    return -1;
-  }
-
-  // Cari direktori parent
-  uint32_t parent_inode_idx;
-  if (!find_dir(request.parent_inode, &parent_inode_idx))
-  {
-    DEBUG_PRINT("Error: Parent directory not found\n");
-    return 2;
-  }
-
-  // Buat salinan nama untuk mencegah masalah
-  char name_copy[256] = {0};
-  memcpy(name_copy, request.name, request.name_len);
-  name_copy[request.name_len] = '\0'; // Pastikan null-terminated
-
-  // Baca inode direktori parent
-  struct EXT2Inode parent_inode;
-  read_inode(parent_inode_idx, &parent_inode);
-
-  // Cek apakah file/direktori dengan nama ini sudah ada
-  uint32_t existing_inode;
-  if (find_inode_in_dir(&parent_inode, name_copy, &existing_inode))
-  {
-    DEBUG_PRINT("Error: File/directory already exists\n");
-    return 1;
-  }
-
-  // Batasi ukuran file untuk mencegah masalah
-  uint32_t buffer_size = request.buffer_size;
-  if (buffer_size > 12 * BLOCK_SIZE)
-  {
-    DEBUG_PRINT("Warning: File size limited to %u bytes\n", 12 * BLOCK_SIZE);
-    buffer_size = 12 * BLOCK_SIZE;
-  }
-
-  // Alokasikan inode baru
-  uint32_t new_inode = allocate_node();
-  if (new_inode == 0)
-  {
-    DEBUG_PRINT("Error: Failed to allocate new inode\n");
-    return -1;
-  }
-
-  DEBUG_PRINT("DEBUG: Allocated inode %u\n", new_inode);
-
-  // Siapkan struktur inode baru
-  struct EXT2Inode new_node;
-  memset(&new_node, 0, sizeof(new_node));
-
-  if (request.is_directory)
-  {
-    // Buat direktori
-    new_node.i_mode = EXT2_S_IFDIR;
-    new_node.i_size = BLOCK_SIZE;
-    new_node.i_blocks = 1;
-    new_node.i_block[0] = allocate_block(inode_to_bgd(new_inode));
-
-    // Inisialisasi entri direktori (. dan ..)
-    init_directory_table(&new_node, new_inode, request.parent_inode);
-  }
-  else
-  {
-    // Buat file
-    new_node.i_mode = EXT2_S_IFREG;
-    new_node.i_size = buffer_size;
-    new_node.i_blocks = ceil_div(buffer_size, BLOCK_SIZE);
-
-    // Alokasikan blok dan tulis data
-    if (buffer_size > 0)
-    {
-      allocate_node_blocks(request.buf, &new_node, inode_to_bgd(new_inode));
+    // Validasi nama
+    if (request.name_len == 0 || request.name_len > 255 || request.name[0] == '\0') {
+        DEBUG_PRINT("Error: Invalid filename length or empty name\n");
+        return -1;
     }
-  }
 
-  // Tulis inode ke disk
-  sync_node(&new_node, new_inode);
+    // Validasi buffer jika buffer_size > 0
+    if (request.buffer_size > 0 && request.buf == NULL) {
+        DEBUG_PRINT("Error: Buffer is NULL but size is non-zero\n");
+        return -1;
+    }
 
-  // Tambahkan entri ke direktori parent dengan nama yang sudah disalin
-  add_inode_to_dir(&parent_inode, new_inode, name_copy);
+    // Validasi parent_inode
+    if (request.parent_inode <= 0 || request.parent_inode > GROUPS_COUNT * INODES_PER_GROUP) {
+        DEBUG_PRINT("Error: Invalid parent inode index\n");
+        return 2;
+    }
 
-  // Update counter
-  uint32_t group = inode_to_bgd(new_inode);
-  bgd_table.table[group].bg_free_inodes_count--;
-  superblock.s_free_inodes_count--;
+    // Ambil inode parent dan cek apakah direktori
+    struct EXT2Inode parent_inode;
+    read_inode(request.parent_inode, &parent_inode);
+    if (!S_ISDIR(parent_inode.i_mode)) {
+        DEBUG_PRINT("Error: Parent is not a directory\n");
+        return 2;
+    }
 
-  if (request.is_directory)
-  {
-    bgd_table.table[group].bg_used_dirs_count++;
-  }
+    // Cek apakah nama sudah ada di direktori parent
+    char name_copy[256];
+    memcpy(name_copy, request.name, request.name_len);
+    name_copy[request.name_len] = '\0';
 
-  // Sinkronisasi semua perubahan
-  sync_superblock();
+    uint32_t existing_inode;
+    if (find_inode_in_dir(&parent_inode, name_copy, &existing_inode)) {
+        DEBUG_PRINT("Error: File/directory already exists\n");
+        return 1;
+    }
 
-  DEBUG_PRINT("DEBUG: Write operation successful\n");
-  return 0;
+    // Alokasi inode baru
+    uint32_t new_inode_idx = allocate_node();
+    if (new_inode_idx == 0) {
+        DEBUG_PRINT("Error: Failed to allocate new inode\n");
+        return -1;
+    }
+
+    uint32_t preferred_bgd = inode_to_bgd(new_inode_idx);
+    struct EXT2Inode new_inode;
+    memset(&new_inode, 0, sizeof(new_inode));
+
+    if (request.is_directory) {
+        new_inode.i_mode = EXT2_S_IFDIR;
+        new_inode.i_size = BLOCK_SIZE;
+        new_inode.i_blocks = 1;
+
+        uint32_t block = allocate_block(preferred_bgd);
+        if (block == 0) {
+            DEBUG_PRINT("Error: No free block for directory\n");
+            return -1;
+        }
+        new_inode.i_block[0] = block;
+
+        init_directory_table(&new_inode, new_inode_idx, request.parent_inode);
+        bgd_table.table[preferred_bgd].bg_used_dirs_count++;
+    } else {
+        new_inode.i_mode = EXT2_S_IFREG;
+        new_inode.i_size = request.buffer_size;
+        new_inode.i_blocks = ceil_div(request.buffer_size, BLOCK_SIZE);
+
+        if (request.buffer_size > 0) {
+            allocate_node_blocks(request.buf, &new_inode, preferred_bgd);
+            // Validasi hasil alokasi blok
+            if (new_inode.i_block[0] == 0) {
+                DEBUG_PRINT("Error: Failed to allocate data blocks\n");
+                return -1;
+            }
+        }
+    }
+
+    // Tulis inode ke disk
+    sync_node(&new_inode, new_inode_idx);
+
+    // Tambahkan entry ke direktori parent
+    add_inode_to_dir(&parent_inode, new_inode_idx, name_copy);
+    // Jika perlu blok baru
+    uint32_t new_block_idx = allocate_block(preferred_bgd);
+    if (new_block_idx == 0) {
+        DEBUG_PRINT("Error: Failed to allocate new block for directory expansion\n");
+        return -1;
+    }
+
+    if (update_node_directory(&parent_inode, new_block_idx) == -1) {
+        return -1;
+    }
+
+    sync_node(&parent_inode, request.parent_inode);
+
+    // Tulis entry di blok baru
+    struct EXT2DirectoryEntry new_entry;
+    new_entry.inode = new_inode_idx;
+    new_entry.name_len = request.name_len;
+    new_entry.file_type = request.is_directory ? EXT2_FT_DIR : EXT2_FT_REG_FILE;
+    new_entry.rec_len = BLOCK_SIZE;
+
+    struct BlockBuffer dir_buf;
+    memset(&dir_buf, 0x0, BLOCK_SIZE);
+    memcpy(&dir_buf, &new_entry, sizeof(struct EXT2DirectoryEntry));
+    memcpy(((uint8_t *)&dir_buf) + sizeof(struct EXT2DirectoryEntry), name_copy, request.name_len);
+    write_blocks(&dir_buf, new_block_idx, 1);
+
+    // Update superblock dan bgd
+    superblock.s_free_inodes_count--;
+    bgd_table.table[preferred_bgd].bg_free_inodes_count--;
+    sync_superblock();
+
+    DEBUG_PRINT("DEBUG: Write operation finished successfully\n");
+    return 0;
 }
+int8_t update_node_directory(struct EXT2Inode *inode, uint32_t new_block_idx) {
+    // Implementasi dummy, nanti bisa kamu isi logikanya
+    inode->i_block[0] = new_block_idx;
+    inode->i_blocks++;
+    return 0;
+}
+
 
 int32_t allocate_block(uint32_t preferred_bgd)
 {

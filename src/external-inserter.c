@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
 
     // Read target file, assuming file is less than 4 MiB
     FILE *fptr_target = fopen(argv[1], "rb");
-    size_t filesize = 0;
+    size_t filesize = 55;
     if (fptr_target == NULL) {
         printf("Peringatan: Tidak dapat membuka file %s - akan membuat file kosong\n", argv[1]);
         filesize = 0;
