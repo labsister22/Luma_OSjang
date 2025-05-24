@@ -57,3 +57,7 @@ void print_str(const char *str, uint8_t row, uint8_t col, uint8_t color)
     framebuffer_set_cursor(current_row, current_col);
   }
 }
+
+void puts(const char* str, uint8_t row, uint8_t col, uint8_t color) {
+    print_str(str, row, col, color);
+}

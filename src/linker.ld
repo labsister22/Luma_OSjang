@@ -1,39 +1,36 @@
-ENTRY(loader)                /* the name of the entry label */
-
+ENTRY(loader)
 SECTIONS {
-    . = 0x00100000;          /* the code should be loaded at 1 MB */
+    . = 0xC0100000;
+    _linker_kernel_virtual_addr_start  = .; 
+    _linker_kernel_physical_addr_start = . - 0xC0000000; 
+    
+    .multiboot ALIGN (0x1000) : AT (ADDR (.multiboot) - 0xC0000000) {
+        *(.multiboot)
+    }
 
-    .multiboot ALIGN (0x1000) :   /* align at 4 KB */
-    {
-        *(.multiboot)        /* GRUB multiboot header */
-    } :text
+    .setup.text ALIGN (0x1000) : AT (ADDR (.setup.text) - 0xC0000000) {
+        *(.setup.text)
+    }
 
-    .text ALIGN (0x1000) :   /* align at 4 KB */
-    {
-        *(.text)             /* all text sections from all files */
-    } :text
+    .text ALIGN (0x1000) : AT (ADDR (.text) - 0xC0000000) {
+        *(.text)
+    }
 
-    .rodata ALIGN (0x1000) : /* align at 4 KB */
-    {
-        *(.rodata*)          /* all read-only data sections from all files */
-    } :rodata
+    .rodata ALIGN (0x1000) : AT (ADDR (.rodata) - 0xC0000000) {
+        *(.rodata*)
+    }
 
-    .data ALIGN (0x1000) :   /* align at 4 KB */
-    {
-        *(.data)             /* all data sections from all files */
-    } :data
+    .data ALIGN (0x1000) : AT (ADDR (.data) - 0xC0000000) {
+        *(.data)
+    }
 
-    .bss ALIGN (0x1000) :    /* align at 4 KB */
-    {
-        *(COMMON)            /* all COMMON sections from all files */
-        *(.bss)              /* all bss sections from all files */
-    } :bss
-}
-
-/* Definisikan header segmen dengan hak akses yang benar */
-PHDRS {
-    text PT_LOAD FLAGS(5);   /* Read & Execute (R-X) */
-    rodata PT_LOAD FLAGS(4); /* Read-only (R--) */
-    data PT_LOAD FLAGS(6);   /* Read & Write (RW-) */
-    bss PT_LOAD FLAGS(6);    /* Read & Write (RW-) */
+    .bss ALIGN (0x1000) : AT (ADDR (.bss) - 0xC0000000) {
+        *(COMMON)
+        *(.bss)
+        *kernel-entrypoint.o(.bss)
+        _linker_kernel_stack_top = .;
+    }
+    
+    _linker_kernel_virtual_addr_end  = .;
+    _linker_kernel_physical_addr_end = . - 0xC0000000;
 }

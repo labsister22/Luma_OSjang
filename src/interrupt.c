@@ -3,6 +3,9 @@
 #include "header/cpu/portio.h"
 #include "header/driver/keyboard.h"
 #include "header/cpu/gdt.h"
+#include "header/filesystem/test_ext2.h"
+#include "header/filesystem/ext2.h"
+#include "header/text/framebuffer.h"
 
 struct TSSEntry _interrupt_tss_entry = {
     .ss0  = GDT_KERNEL_DATA_SEGMENT_SELECTOR,
@@ -90,4 +93,28 @@ void main_interrupt_handler(struct InterruptFrame frame)
 void activate_keyboard_interrupt(void)
 {
   out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
+}
+
+void syscall(struct InterruptFrame frame) {
+    switch (frame.cpu.general.eax) {
+        case 0:
+            *((int8_t*) frame.cpu.general.ecx) = read(
+                *(struct EXT2DriverRequest*) frame.cpu.general.ebx
+            );
+            break;
+        case 4:
+            get_keyboard_buffer((char*) frame.cpu.general.ebx);
+            break;
+        case 6:
+            puts(
+                (char*) frame.cpu.general.ebx, 
+                frame.cpu.general.ecx, 
+                frame.cpu.general.edx,
+                0
+            ); // Assuming puts() exist in kernel
+            break;
+        case 7: 
+            keyboard_state_activate();
+            break;
+    }
 }
