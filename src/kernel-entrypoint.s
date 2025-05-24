@@ -47,6 +47,7 @@ load_gdt:
 
 ; Set TSS register
 set_tss_register:
+    push eax
     mov ax, 0x28    ; TSS segment selector (GDT_TSS_SELECTOR)
     ltr ax          ; Load Task Register
     ret

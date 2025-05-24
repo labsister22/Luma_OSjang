@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "header/memory/paging.h"
+#include "header/text/framebuffer.h"
 
 __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_directory = {
     .table = {
@@ -118,6 +119,13 @@ bool paging_allocate_check(uint32_t amount)
 
 bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr)
 {
+  if (!page_dir)
+  {
+    return false;
+  }
+
+  framebuffer_write(0, 5, 'P', 0x0F, 0x00);
+
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
 
   // Find free physical frame
