@@ -31,6 +31,7 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/intsetups.o	\
        $(OUTPUT_FOLDER)/string.o \
 	   $(OUTPUT_FOLDER)/ext2.o \
+	   $(OUTPUT_FOLDER)/paging.o \
 	   $(OUTPUT_FOLDER)/test_ext2.o
 
 

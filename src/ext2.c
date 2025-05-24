@@ -146,7 +146,7 @@ int8_t write(struct EXT2DriverRequest request)
   }
 
   // Buat salinan nama untuk mencegah masalah
-  char name_copy[256];
+  char name_copy[256] = {0};
   memcpy(name_copy, request.name, request.name_len);
   name_copy[request.name_len] = '\0'; // Pastikan null-terminated
 

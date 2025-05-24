@@ -10,6 +10,7 @@
 #include "header/driver/disk.h"
 #include "header/filesystem/ext2.h"
 #include "header/filesystem/test_ext2.h"
+#include "user-shell.c"
 #include "header/memory/paging.h"
 
 void kernel_setup(void)

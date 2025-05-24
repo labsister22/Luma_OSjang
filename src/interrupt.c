@@ -106,12 +106,14 @@ void syscall(struct InterruptFrame frame) {
             get_keyboard_buffer((char*) frame.cpu.general.ebx);
             break;
         case 6:
-            puts(
-                (char*) frame.cpu.general.ebx, 
-                frame.cpu.general.ecx, 
-                frame.cpu.general.edx,
-                0
-            ); // Assuming puts() exist in kernel
+            if ((char*) frame.cpu.general.ebx != NULL && ((uint32_t)frame.cpu.general.ebx) < 0x1000000) {
+                puts(
+                    (char*) frame.cpu.general.ebx, 
+                    (uint8_t)frame.cpu.general.ecx, 
+                    (uint8_t)frame.cpu.general.edx,
+                    0
+                );
+            }
             break;
         case 7: 
             keyboard_state_activate();
