@@ -101,6 +101,18 @@
 
 void kernel_setup(void)
 {
+  framebuffer_write(0, 0, '1', 0x0F, 0x00);
+  load_gdt(&_gdt_gdtr);
+
+  framebuffer_write(0, 1, '2', 0x0F, 0x00);
+  pic_remap();
+
+  framebuffer_write(0, 2, '3', 0x0F, 0x00);
+  activate_keyboard_interrupt();
+
+  framebuffer_write(0, 3, '4', 0x0F, 0x00);
+  paging_activate(&_paging_kernel_page_directory);
+
   load_gdt(&_gdt_gdtr);
   pic_remap();
   activate_keyboard_interrupt();
