@@ -139,4 +139,11 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
  */
 bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr);
 
+/**
+ * Activate paging with the given page directory
+ *
+ * @param page_dir Page directory to activate
+ */
+void paging_activate(struct PageDirectory *page_dir);
+
 #endif

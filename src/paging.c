@@ -199,3 +199,22 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
   flush_single_tlb(virtual_addr);
   return true;
 }
+
+// Simple paging activation function
+void paging_activate(struct PageDirectory *page_dir)
+{
+  // Load page directory into CR3
+  asm volatile("mov %0, %%cr3" : : "r"(page_dir) : "memory");
+
+  // Enable 4MB paging (PSE bit in CR4)
+  uint32_t cr4;
+  asm volatile("mov %%cr4, %0" : "=r"(cr4));
+  cr4 |= 0x00000010; // PSE flag
+  asm volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+
+  // Enable paging (PG bit in CR0)
+  uint32_t cr0;
+  asm volatile("mov %%cr0, %0" : "=r"(cr0));
+  cr0 |= 0x80000000; // PG flag
+  asm volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
+}

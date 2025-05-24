@@ -118,3 +118,9 @@ void syscall(struct InterruptFrame frame) {
             break;
     }
 }
+
+void isr_handler(struct InterruptFrame frame)
+{
+    // Simple handler - just return
+    (void)frame; // Suppress unused parameter warning
+}

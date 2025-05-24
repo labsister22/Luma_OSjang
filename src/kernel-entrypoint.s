@@ -1,106 +1,88 @@
-global loader                        ; the entry symbol for ELF
-global load_gdt                      ; load GDT table
-global set_tss_register              ; set tss register to GDT entry
-global kernel_execute_user_program   ; execute user program
-extern kernel_setup                  ; kernel C entrypoint
-extern _paging_kernel_page_directory ; kernel page directory
+global loader
+global load_gdt
+global set_tss_register
+global kernel_execute_user_program
+extern kernel_setup
 
-KERNEL_VIRTUAL_BASE equ 0xC0000000    ; kernel virtual memory
-KERNEL_STACK_SIZE   equ 2097152       ; size of stack in bytes
-MAGIC_NUMBER        equ 0x1BADB002    ; define the magic number constant
-FLAGS               equ 0x0           ; multiboot flags
-CHECKSUM            equ -MAGIC_NUMBER ; calculate the checksum (magic number + checksum + flags == 0)
+MAGIC_NUMBER equ 0x1BADB002
+FLAGS        equ 0x0
+CHECKSUM     equ -MAGIC_NUMBER
 
-section .bss
-align 4                    ; align at 4 bytes
-kernel_stack:              ; label points to beginning of memory
-    resb KERNEL_STACK_SIZE ; reserve stack for the kernel
+section .multiboot
+align 4
+    dd MAGIC_NUMBER
+    dd FLAGS
+    dd CHECKSUM
 
-section .multiboot  ; GRUB multiboot header
-align 4             ; the code must be 4 byte aligned
-    dd MAGIC_NUMBER ; write the magic number to the machine code,
-    dd FLAGS        ; the flags,
-    dd CHECKSUM     ; and the checksum
-
-; start of the text (code) section
-section .setup.text 
-loader equ (loader_entrypoint - KERNEL_VIRTUAL_BASE)
-loader_entrypoint:         ; the loader label (defined as entry point in linker script)
-    ; Set CR3 (CPU page register)
-    mov eax, _paging_kernel_page_directory - KERNEL_VIRTUAL_BASE
-    mov cr3, eax
-
-    ; Use 4 MB paging
-    mov eax, cr4
-    or  eax, 0x00000010    ; PSE (4 MB paging)
-    mov cr4, eax
-
-    ; Enable paging
-    mov eax, cr0
-    or  eax, 0x80000000    ; PG flag
-    mov cr0, eax
-
-    ; Jump into higher half first, cannot use C because call stack is still not working
-    lea eax, [loader_virtual]
-    jmp eax
-
-loader_virtual:
-    mov dword [_paging_kernel_page_directory], 0
-    invlpg [0]                                ; Delete identity mapping and invalidate TLB cache for first page
-    mov esp, kernel_stack + KERNEL_STACK_SIZE ; Setup stack register to proper location
+section .setup.text
+loader:
+    mov esp, stack_top
     call kernel_setup
-.loop:
-    jmp .loop                                 ; loop forever
-
-section .text
-; More details: https://en.wikibooks.org/wiki/X86_Assembly/Protected_Mode
-load_gdt:
-    cli
-    mov  eax, [esp+4]
-    lgdt [eax] ; Load GDT from GDTDescriptor, eax at this line will point GDTR location
     
-    ; Set bit-0 (Protection Enable bit-flag) in Control Register 0 (CR0)
-    ; This is optional, as usually GRUB already start with protected mode flag enabled
-    mov  eax, cr0
-    or   eax, 1
-    mov  cr0, eax
+hang:
+    hlt
+    jmp hang
 
-    ; Far jump to update cs register
-    ; Warning: Invalid GDT will raise exception in any instruction below
-    jmp 0x8:flush_cs
-flush_cs:
-    ; Update all segment register
-    mov ax, 10h
-    mov ss, ax
+; Load GDT function
+load_gdt:
+    push ebp
+    mov ebp, esp
+    
+    mov eax, [ebp + 8]   ; Get GDTR pointer from parameter
+    lgdt [eax]           ; Load GDT
+    
+    ; Reload segment registers
+    mov ax, 0x10         ; Kernel data segment selector
     mov ds, ax
     mov es, ax
-    ret
-
-set_tss_register:
-    mov ax, 0x28 | 0 ; GDT TSS Selector, ring 0
-    ltr ax
-    ret
-
-global kernel_execute_user_program ; execute initial user program from kernel
-kernel_execute_user_program:
-    mov  eax, 0x20 | 0x3
-    mov  ds, ax
-    mov  es, ax
-    mov  fs, ax
-    mov  gs, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
     
-    ; Using iret (return instruction for interrupt) technique for privilege change
-    ; Stack values will be loaded into these register:
-    ; [esp] -> eip, [esp+4] -> cs, [esp+8] -> eflags, [] -> user esp, [] -> user ss
-    mov  ecx, [esp+4] ; Save first (before pushing anything to stack) for last push
-    push eax ; Stack segment selector (GDT_USER_DATA_SELECTOR), user privilege
-    mov  eax, ecx
-    add  eax, 0x400000 - 4
-    push eax ; User space stack pointer (esp), move it into last 4 MiB
-    pushf    ; eflags register state, when jump inside user program
-    mov  eax, 0x18 | 0x3
-    push eax ; Code segment selector (GDT_USER_CODE_SELECTOR), user privilege
-    mov  eax, ecx
-    push eax ; eip register to jump back
+    ; Far jump to reload CS with kernel code segment
+    jmp 0x08:.reload_cs
+.reload_cs:
+    pop ebp
+    ret
 
-    iret
+; Set TSS register
+set_tss_register:
+    mov ax, 0x28    ; TSS segment selector (GDT_TSS_SELECTOR)
+    ltr ax          ; Load Task Register
+    ret
+
+; Execute user program
+kernel_execute_user_program:
+    push ebp
+    mov ebp, esp
+    
+    mov eax, [ebp + 8]  ; Get user program address
+    
+    ; Setup user mode segments
+    mov ax, 0x23        ; User data segment (0x20 | 3 for ring 3)
+    mov ds, ax
+    mov es, ax 
+    mov fs, ax
+    mov gs, ax
+    
+    ; Setup stack for user mode
+    push 0x23           ; User data segment 
+    push 0x400000       ; User stack pointer
+    pushf               ; EFLAGS
+    pop eax
+    or eax, 0x200       ; Enable interrupts
+    push eax
+    push 0x1B           ; User code segment (0x18 | 3 for ring 3)
+    push dword [ebp + 8] ; User program address
+    
+    iret                ; Jump to user mode
+    
+    ; Should never reach here
+    pop ebp
+    ret
+
+section .bss
+align 4
+stack_bottom:
+    resb 16384
+stack_top:
