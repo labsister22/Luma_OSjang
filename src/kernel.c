@@ -11,6 +11,7 @@
 #include "header/filesystem/ext2.h"
 #include "header/filesystem/test_ext2.h"
 #include "header/memory/paging.h"
+#include "header/shell/user-shell.h"
 
 void kernel_setup(void)
 {

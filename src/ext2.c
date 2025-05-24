@@ -112,6 +112,12 @@ void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_b
 
 int8_t write(struct EXT2DriverRequest request)
 {
+  if (request.name_len >= sizeof(request.name))
+  {
+    return -1; // Name too long
+  }
+  request.name[request.name_len] = '\0';
+
   // Validasi input
   DEBUG_PRINT("DEBUG write: Entering function\n");
   DEBUG_PRINT("DEBUG write: name_len=%u, buffer_size=%u\n",

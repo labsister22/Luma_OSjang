@@ -26,14 +26,13 @@ extern struct PageDirectory _paging_kernel_page_directory;
 struct PageDirectoryEntryFlag
 {
   uint8_t present_bit : 1;
-  // TODO : Continue. Note: Only 8-bit flags
-  uint8_t write_bit : 1;
-  uint8_t user_bit : 1;
-  uint8_t write_through_bit : 1;
-  uint8_t cache_disable_bit : 1;
-  uint8_t accessed_bit : 1;
-  uint8_t dirty_bit : 1;
-  uint8_t use_pagesize_4_mb : 1;
+  uint8_t write_bit : 1;         // If 0, writes are not allowed
+  uint8_t user_bit : 1;          // If 0, user mode not allowed
+  uint8_t pwt_bit : 1;           // If 1,Enable write through caching
+  uint8_t pcd_bit : 1;           // If 1, disable caching
+  uint8_t acc_bit : 1;           // If 1, software has accessed
+  uint8_t dirty_bit : 1;         // If 1, software has written to page
+  uint8_t use_pagesize_4_mb : 1; // value 1 to indicates that it references a page frame
 } __attribute__((packed));
 
 /**
@@ -53,14 +52,11 @@ struct PageDirectoryEntry
 {
   struct PageDirectoryEntryFlag flag;
   uint16_t global_page : 1;
-  uint16_t available : 3;
+  uint16_t ignored_bit : 3;
   uint16_t pat_bit : 1;
-  uint16_t reserved_1 : 9;
+  uint16_t higher_address : 8;
+  uint16_t reserved_bit : 1;
   uint16_t lower_address : 10;
-  uint8_t reserved_2 : 1;
-  uint8_t available_2 : 3;
-  uint8_t higher_address : 4;
-  uint32_t reserved_3 : 24;
 } __attribute__((packed));
 
 /**
@@ -75,8 +71,8 @@ struct PageDirectoryEntry
  */
 struct PageDirectory
 {
-  volatile struct PageDirectoryEntry table[PAGE_ENTRY_COUNT];
-} __attribute__((packed, aligned(0x1000)));
+  struct PageDirectoryEntry table[PAGE_ENTRY_COUNT];
+} __attribute__((packed));
 
 /**
  * Containing page manager states.
@@ -88,8 +84,42 @@ struct PageManagerState
 {
   bool page_frame_map[PAGE_FRAME_MAX_COUNT];
   uint32_t free_page_frame_count;
-  // TODO: Add if needed ...
+  uint32_t next_free_frame;
 } __attribute__((packed));
+
+/* --- Process-related Memory Management --- */
+#define PAGING_DIRECTORY_TABLE_MAX_COUNT 32
+
+/**
+ * Create new page directory prefilled with 1 page directory entry for kernel higher half mapping
+ *
+ * @return Pointer to page directory virtual address. Return NULL if allocation failed
+ */
+struct PageDirectory *paging_create_new_page_directory(void);
+
+/**
+ * Free page directory and delete all page directory entry
+ *
+ * @param page_dir Pointer to page directory virtual address
+ * @return         True if free operation success
+ */
+bool paging_free_page_directory(struct PageDirectory *page_dir);
+
+/**
+ * Get currently active page directory virtual address from CR3 register
+ *
+ * @note   Assuming page directories lives in kernel memory
+ * @return Page directory virtual address currently active (CR3)
+ */
+struct PageDirectory *paging_get_current_page_directory_addr(void);
+
+/**
+ * Change active page directory (indirectly trigger TLB flush for all non-global entry)
+ *
+ * @note                        Assuming page directories lives in kernel memory
+ * @param page_dir_virtual_addr Page directory virtual address to switch into
+ */
+void paging_use_page_directory(struct PageDirectory *page_dir_virtual_addr);
 
 /**
  * Edit page directory with respective parameter
