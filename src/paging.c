@@ -147,76 +147,21 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
   return true;
 }
 
-struct PageDirectory *paging_create_new_page_directory(void)
+// Simple paging activation function
+void paging_activate(struct PageDirectory *page_dir)
 {
-  /*
-   * TODO: Get & initialize empty page directory from page_directory_list
-   * - Iterate page_directory_list[] & get unused page directory
-   * - Mark selected page directory as used
-   * - Create new page directory entry for kernel higher half with flag:
-   *     > present bit    true
-   *     > write bit      true
-   *     > pagesize 4 mb  true
-   *     > lower address  0
-   * - Set page_directory.table[0x300] with kernel page directory entry
-   * - Return the page directory address
-   */
+  // Load page directory into CR3
+  asm volatile("mov %0, %%cr3" : : "r"(page_dir) : "memory");
 
-  if (page_directory_manager.page_dir_free == 0)
-  {
-    return NULL;
-  }
-  int idx;
-  for (int i = 0; i < PAGING_DIRECTORY_TABLE_MAX_COUNT; i++)
-  {
-    if (page_directory_manager.page_directory_used[i] == false)
-    {
-      idx = i;
-      break;
-    }
-  }
-  page_directory_manager.page_directory_used[idx] = true;
-  page_directory_manager.page_dir_free--;
+  // Enable 4MB paging (PSE bit in CR4)
+  uint32_t cr4;
+  asm volatile("mov %%cr4, %0" : "=r"(cr4));
+  cr4 |= 0x00000010; // PSE flag
+  asm volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
 
-  struct PageDirectoryEntry kernel_entry = {
-      .flag.present_bit = 1,
-      .flag.write_bit = 1,
-      .flag.use_pagesize_4_mb = 1,
-      .lower_address = 0,
-  };
-
-  page_directory_list[idx].table[0x300] = kernel_entry;
-  return &page_directory_list[idx];
-}
-
-bool paging_free_page_directory(struct PageDirectory *page_dir)
-{
-  /**
-   * TODO: Iterate & clear page directory values
-   * - Iterate page_directory_list[] & check &page_directory_list[] == page_dir
-   * - If matches, mark the page directory as unusued and clear all page directory entry
-   * - Return true
-   */
-
-  for (int i = 0; i < PAGING_DIRECTORY_TABLE_MAX_COUNT; i++)
-  {
-    if (&page_directory_list[i] == page_dir)
-    {
-      page_directory_manager.page_directory_used[i] = false;
-      for (int j = 0; j < PAGE_ENTRY_COUNT; j++)
-      {
-        if (j == 0x300)
-        {
-          continue;
-        }
-        if (page_directory_list[i].table[j].flag.present_bit == true)
-        {
-          paging_free_user_page_frame(&page_directory_list[i],
-                                      (void *)(j << 22));
-        };
-      }
-      return true;
-    }
-  }
-  return false;
+  // Enable paging (PG bit in CR0)
+  uint32_t cr0;
+  asm volatile("mov %%cr0, %0" : "=r"(cr0));
+  cr0 |= 0x80000000; // PG flag
+  asm volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
 }

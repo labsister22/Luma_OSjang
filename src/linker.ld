@@ -1,36 +1,29 @@
 ENTRY(loader)
 SECTIONS {
-    . = 0xC0100000;
-    _linker_kernel_virtual_addr_start  = .; 
-    _linker_kernel_physical_addr_start = . - 0xC0000000; 
-    
-    .multiboot ALIGN (0x1000) : AT (ADDR (.multiboot) - 0xC0000000) {
+    . = 1M;
+
+    .multiboot ALIGN(4K) : {
         *(.multiboot)
     }
 
-    .setup.text ALIGN (0x1000) : AT (ADDR (.setup.text) - 0xC0000000) {
+    .setup.text ALIGN(4K) : {
         *(.setup.text)
     }
 
-    .text ALIGN (0x1000) : AT (ADDR (.text) - 0xC0000000) {
+    .text ALIGN(4K) : {
         *(.text)
     }
 
-    .rodata ALIGN (0x1000) : AT (ADDR (.rodata) - 0xC0000000) {
-        *(.rodata*)
+    .rodata ALIGN(4K) : {
+        *(.rodata)
     }
 
-    .data ALIGN (0x1000) : AT (ADDR (.data) - 0xC0000000) {
+    .data ALIGN(4K) : {
         *(.data)
     }
 
-    .bss ALIGN (0x1000) : AT (ADDR (.bss) - 0xC0000000) {
+    .bss ALIGN(4K) : {
         *(COMMON)
         *(.bss)
-        *kernel-entrypoint.o(.bss)
-        _linker_kernel_stack_top = .;
     }
-    
-    _linker_kernel_virtual_addr_end  = .;
-    _linker_kernel_physical_addr_end = . - 0xC0000000;
 }

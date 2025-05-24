@@ -112,38 +112,40 @@ void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_b
 
 int8_t write(struct EXT2DriverRequest request)
 {
-  if (request.name_len >= sizeof(request.name))
-  {
-    return -1; // Name too long
-  }
-  request.name[request.name_len] = '\0';
-
-  // Validasi input
+  // Validasi input dengan bound checking yang lebih ketat
   DEBUG_PRINT("DEBUG write: Entering function\n");
   DEBUG_PRINT("DEBUG write: name_len=%u, buffer_size=%u\n",
               request.name_len, request.buffer_size);
 
-  // Perbaikan: Validasi name dengan lebih tepat
-  if (request.name_len == 0 || request.name_len >= 254)
+  // Fix: Since name_len is uint8_t (0-255), only check for 0
+  if (request.name_len == 0)
   {
-    DEBUG_PRINT("Error: Invalid filename length\n");
+    DEBUG_PRINT("Error: Invalid filename length: %u\n", request.name_len);
     return -1;
   }
 
-  // Pastikan name tidak kosong dengan memeriksa karakter pertama
+  // Pastikan name tidak kosong dan valid
   if (request.name[0] == '\0')
   {
     DEBUG_PRINT("Error: Empty filename\n");
     return -1;
   }
 
+  // Validasi buffer
   if (request.buffer_size > 0 && request.buf == NULL)
   {
     DEBUG_PRINT("Error: Buffer is NULL but size is non-zero\n");
     return -1;
   }
 
-  // Cari direktori parent
+  // Batasi ukuran file untuk mencegah overflow
+  if (request.buffer_size > 12 * BLOCK_SIZE)
+  {
+    DEBUG_PRINT("Error: File too large. Max size: %u bytes\n", 12 * BLOCK_SIZE);
+    return -1;
+  }
+
+  // Cari direktori parent dengan validasi
   uint32_t parent_inode_idx;
   if (!find_dir(request.parent_inode, &parent_inode_idx))
   {
@@ -151,10 +153,21 @@ int8_t write(struct EXT2DriverRequest request)
     return 2;
   }
 
-  // Buat salinan nama untuk mencegah masalah
+  // Buat salinan nama yang aman dengan bound checking
   char name_copy[256];
-  memcpy(name_copy, request.name, request.name_len);
-  name_copy[request.name_len] = '\0'; // Pastikan null-terminated
+  memset(name_copy, 0, sizeof(name_copy)); // Clear buffer first
+
+  // Pastikan kita tidak menyalin lebih dari yang tersedia
+  size_t copy_len = request.name_len;
+  if (copy_len >= sizeof(name_copy))
+  {
+    copy_len = sizeof(name_copy) - 1;
+  }
+
+  memcpy(name_copy, request.name, copy_len);
+  name_copy[copy_len] = '\0'; // Pastikan null-terminated
+
+  DEBUG_PRINT("DEBUG: Using filename: '%s' (len=%zu)\n", name_copy, strlen(name_copy));
 
   // Baca inode direktori parent
   struct EXT2Inode parent_inode;
@@ -168,14 +181,6 @@ int8_t write(struct EXT2DriverRequest request)
     return 1;
   }
 
-  // Batasi ukuran file untuk mencegah masalah
-  uint32_t buffer_size = request.buffer_size;
-  if (buffer_size > 12 * BLOCK_SIZE)
-  {
-    DEBUG_PRINT("Warning: File size limited to %u bytes\n", 12 * BLOCK_SIZE);
-    buffer_size = 12 * BLOCK_SIZE;
-  }
-
   // Alokasikan inode baru
   uint32_t new_inode = allocate_node();
   if (new_inode == 0)
@@ -186,7 +191,7 @@ int8_t write(struct EXT2DriverRequest request)
 
   DEBUG_PRINT("DEBUG: Allocated inode %u\n", new_inode);
 
-  // Siapkan struktur inode baru
+  // Siapkan struktur inode baru dengan memset untuk keamanan
   struct EXT2Inode new_node;
   memset(&new_node, 0, sizeof(new_node));
 
@@ -205,11 +210,11 @@ int8_t write(struct EXT2DriverRequest request)
   {
     // Buat file
     new_node.i_mode = EXT2_S_IFREG;
-    new_node.i_size = buffer_size;
-    new_node.i_blocks = ceil_div(buffer_size, BLOCK_SIZE);
+    new_node.i_size = request.buffer_size;
+    new_node.i_blocks = ceil_div(request.buffer_size, BLOCK_SIZE);
 
-    // Alokasikan blok dan tulis data
-    if (buffer_size > 0)
+    // Alokasikan blok dan tulis data dengan validasi
+    if (request.buffer_size > 0 && request.buf != NULL)
     {
       allocate_node_blocks(request.buf, &new_node, inode_to_bgd(new_inode));
     }
@@ -268,31 +273,69 @@ void sync_superblock(void)
   write_blocks(&bgd_table, 2, 1);
 }
 
-void add_inode_to_dir(struct EXT2Inode *dir_inode, uint32_t inode, const char *name)
+void add_inode_to_dir(struct EXT2Inode *parent_inode, uint32_t inode, const char *name)
 {
-  uint8_t buf[BLOCK_SIZE];
-  read_blocks(buf, dir_inode->i_block[0], 1);
+  // Validasi input
+  if (!parent_inode || !name || strlen(name) == 0 || strlen(name) > 255)
+  {
+    DEBUG_PRINT("Error: Invalid parameters to add_inode_to_dir\n");
+    return;
+  }
 
+  uint8_t buffer[BLOCK_SIZE];
+  read_blocks(buffer, parent_inode->i_block[0], 1);
+
+  // Cari tempat untuk entri baru
   uint32_t offset = 0;
   struct EXT2DirectoryEntry *entry;
 
   while (offset < BLOCK_SIZE)
   {
-    entry = get_directory_entry(buf, offset);
-    if (entry->inode == 0 || offset + entry->rec_len >= BLOCK_SIZE)
+    entry = (struct EXT2DirectoryEntry *)(buffer + offset);
+
+    // Jika ini adalah entri terakhir atau kosong
+    if (entry->rec_len == 0 || offset + entry->rec_len >= BLOCK_SIZE)
+    {
       break;
+    }
+
     offset += entry->rec_len;
   }
 
-  entry->inode = inode;
-  entry->name_len = strlen(name);
-  entry->file_type = EXT2_FT_REG_FILE;
-  entry->rec_len = BLOCK_SIZE - offset;
+  // Hitung ukuran entri baru dengan padding
+  uint8_t name_len = strlen(name);
+  uint16_t entry_size = sizeof(struct EXT2DirectoryEntry) + name_len;
 
-  char *entry_name = get_entry_name(entry);
-  memcpy(entry_name, name, entry->name_len);
+  // Alignment to 4 bytes
+  if (entry_size % 4 != 0)
+  {
+    entry_size += 4 - (entry_size % 4);
+  }
 
-  write_blocks(buf, dir_inode->i_block[0], 1);
+  // Pastikan ada ruang untuk entri baru
+  if (offset + entry_size > BLOCK_SIZE)
+  {
+    DEBUG_PRINT("Error: Not enough space in directory block\n");
+    return;
+  }
+
+  // Buat entri baru
+  struct EXT2DirectoryEntry *new_entry = (struct EXT2DirectoryEntry *)(buffer + offset);
+  memset(new_entry, 0, entry_size); // Clear the entry first
+
+  new_entry->inode = inode;
+  new_entry->rec_len = BLOCK_SIZE - offset; // Takes rest of the block
+  new_entry->name_len = name_len;
+  new_entry->file_type = EXT2_FT_REG_FILE; // Assume regular file
+
+  // Salin nama dengan aman
+  char *entry_name = (char *)(new_entry + 1);
+  memcpy(entry_name, name, name_len);
+
+  // Tulis kembali ke disk
+  write_blocks(buffer, parent_inode->i_block[0], 1);
+
+  DEBUG_PRINT("DEBUG: Added directory entry for '%s' with inode %u\n", name, inode);
 }
 
 bool is_empty_directory(struct EXT2Inode *inode)
@@ -380,10 +423,38 @@ bool is_directory(struct EXT2Inode *inode)
 
 void read_inode(uint32_t inode, struct EXT2Inode *out_inode)
 {
+  // Add bounds checking
+  if (out_inode == NULL)
+  {
+    DEBUG_PRINT("Error: out_inode is NULL\n");
+    return;
+  }
+
+  if (inode == 0)
+  {
+    DEBUG_PRINT("Error: Invalid inode number 0\n");
+    return;
+  }
+
   uint32_t group = inode_to_bgd(inode);
   uint32_t local_inode = inode_to_local(inode);
 
+  // Add bounds checking for group and local_inode
+  if (group >= GROUPS_COUNT)
+  {
+    DEBUG_PRINT("Error: Group %u exceeds maximum %u\n", group, GROUPS_COUNT);
+    return;
+  }
+
+  if (local_inode >= INODES_PER_GROUP)
+  {
+    DEBUG_PRINT("Error: Local inode %u exceeds maximum %u\n", local_inode, INODES_PER_GROUP);
+    return;
+  }
+
   struct EXT2InodeTable inode_table;
+  memset(&inode_table, 0, sizeof(inode_table)); // Clear the buffer first
+
   read_blocks(&inode_table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
   *out_inode = inode_table.table[local_inode];
 }

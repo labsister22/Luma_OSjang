@@ -158,6 +158,8 @@ void pic_remap(void);
 void main_interrupt_handler(struct InterruptFrame frame);
 void default_interrupt_handler(struct InterruptFrame frame);
 void activate_keyboard_interrupt(void);
+void isr_handler(struct InterruptFrame frame); // Tambahkan ini
+
 
 extern struct TSSEntry _interrupt_tss_entry;
 

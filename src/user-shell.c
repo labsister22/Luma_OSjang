@@ -29,8 +29,10 @@ int main(void)
     syscall(0, (uint32_t)&request, (uint32_t)&retcode, 0);
     __asm__("int3");
     if (retcode == 0)
+    {
         __asm__("int3");
-    syscall(6, (uint32_t)"owo\n", 4, 0xF);
+        syscall(6, (uint32_t)"owo\n", 4, 0xF);
+    }
 
     char buf;
     syscall(7, 0, 0, 0);
