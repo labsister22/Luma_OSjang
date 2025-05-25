@@ -7,67 +7,18 @@
 
 __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_directory = {
     .table = {
-        /* Entry 0: Identity mapping for bootloader and initial boot */
         [0] = {
-            .flag = {
-                .present_bit = 1,
-                .write_bit = 1,
-                .user_bit = 0,
-                .write_through_bit = 0,
-                .cache_disable_bit = 0,
-                .accessed_bit = 0,
-                .dirty_bit = 0,
-                .use_pagesize_4_mb = 1,
-            },
-            .global_page = 0,
-            .available = 0,
-            .pat_bit = 0,
-            .reserved_1 = 0,
-            .lower_address = 0, /* Maps physical 0x00000000-0x00400000 to virtual 0x00000000-0x00400000 */
-            .reserved_2 = 0,
-            .available_2 = 0,
-            .higher_address = 0},
-        /* Entry 0x300: Higher-half kernel mapping
-           Maps physical 0x00000000-0x00400000 to virtual 0xC0000000-0xC0400000
-           This includes framebuffer at 0xB8000 -> 0xC00B8000 */
-        [0x300] = {.flag = {
-                       .present_bit = 1,
-                       .write_bit = 1,
-                       .user_bit = 0,
-                       .write_through_bit = 0,
-                       .cache_disable_bit = 0,
-                       .accessed_bit = 0,
-                       .dirty_bit = 0,
-                       .use_pagesize_4_mb = 1,
-                   },
-                   .global_page = 0,
-                   .available = 0,
-                   .pat_bit = 0,
-                   .reserved_1 = 0,
-                   .lower_address = 0, /* index 0 = 0x00000000 physical address */
-                   .reserved_2 = 0,
-                   .available_2 = 0,
-                   .higher_address = 0},
-        /* Entry 0x301: Higher-half kernel segment kedua
-           Maps physical 0x00400000-0x00800000 to virtual 0xC0400000-0xC0800000 */
-        [0x301] = {.flag = {
-                       .present_bit = 1,
-                       .write_bit = 1,
-                       .user_bit = 0,
-                       .write_through_bit = 0,
-                       .cache_disable_bit = 0,
-                       .accessed_bit = 0,
-                       .dirty_bit = 0,
-                       .use_pagesize_4_mb = 1,
-                   },
-                   .global_page = 0,
-                   .available = 0,
-                   .pat_bit = 0,
-                   .reserved_1 = 0,
-                   .lower_address = 1, /* index 1 = 0x00400000 physical address */
-                   .reserved_2 = 0,
-                   .available_2 = 0,
-                   .higher_address = 0},
+            .flag.present_bit = 1,
+            .flag.write_bit = 1,
+            .flag.use_pagesize_4_mb = 1,
+            .lower_address = 0,
+        },
+        [0x300] = {
+            .flag.present_bit = 1,
+            .flag.write_bit = 1,
+            .flag.use_pagesize_4_mb = 1,
+            .lower_address = 0,
+        },
     }};
 
 static struct PageManagerState page_manager_state = {
@@ -97,11 +48,10 @@ void update_page_directory_entry(
 
   // Reset other fields to 0 to ensure no old values remain
   page_dir->table[page_index].global_page = 0;
-  page_dir->table[page_index].available = 0;
-  page_dir->table[page_index].pat_bit = 0;
+  page_dir->table[page_index].reserved_1 = 0;
+  page_dir->table[page_index].pat = 0;
   page_dir->table[page_index].reserved_1 = 0;
   page_dir->table[page_index].reserved_2 = 0;
-  page_dir->table[page_index].available_2 = 0;
   page_dir->table[page_index].higher_address = 0; // Keep as 0 for 32-bit systems
 
   // Flush TLB for this virtual address
@@ -183,11 +133,9 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
   page_dir->table[page_index].flag = flag;
   page_dir->table[page_index].lower_address = frame_index & 0x3FF;
   page_dir->table[page_index].global_page = 0;
-  page_dir->table[page_index].available = 0;
-  page_dir->table[page_index].pat_bit = 0;
+  page_dir->table[page_index].pat = 0;
   page_dir->table[page_index].reserved_1 = 0;
   page_dir->table[page_index].reserved_2 = 0;
-  page_dir->table[page_index].available_2 = 0;
   page_dir->table[page_index].higher_address = 0; // Keep as 0 for 32-bit systems
 
   flush_single_tlb(virtual_addr);
@@ -232,12 +180,10 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
   page_dir->table[page_index].flag.dirty_bit = 0;
   page_dir->table[page_index].flag.use_pagesize_4_mb = 0;
   page_dir->table[page_index].global_page = 0;
-  page_dir->table[page_index].available = 0;
-  page_dir->table[page_index].pat_bit = 0;
+  page_dir->table[page_index].pat = 0;
   page_dir->table[page_index].reserved_1 = 0;
   page_dir->table[page_index].lower_address = 0;
   page_dir->table[page_index].reserved_2 = 0;
-  page_dir->table[page_index].available_2 = 0;
   page_dir->table[page_index].higher_address = 0;
 
   flush_single_tlb(virtual_addr);

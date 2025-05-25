@@ -16,6 +16,7 @@ void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
 
 int main(void)
 {
+
     struct BlockBuffer bl[BLOCK_COUNT] = {0};
     struct EXT2DriverRequest request = {
         .buf = &bl,
