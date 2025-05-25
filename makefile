@@ -36,7 +36,7 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -S -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+	@qemu-system-i386 -s -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
 
 # run: iso
 # 	qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/OS2025.iso
