@@ -13,8 +13,8 @@ ISO_NAME      = OS2025
 WARNING_CFLAG = -Wall -Wextra -Werror
 DEBUG_CFLAG   = -fshort-wchar -g
 STRIP_CFLAG   = -nostdlib -fno-stack-protector -nostartfiles -nodefaultlibs -ffreestanding
-CFLAGS        = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -Iheader
-AFLAGS        = -f elf32 -g -F dwarf
+CFLAGS = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -Iheader -g -gdwarf-2
+AFLAGS = -f elf32 -g -F dwarf
 LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 DISK_NAME     = storage
 
@@ -37,6 +37,9 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
 # Run QEMU
 run: all
 	@qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+
+# run: iso
+# 	qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/OS2025.iso
 
 # Build All - updated to include everything needed
 all: iso disk insert-shell inserter user-shell
