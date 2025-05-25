@@ -828,25 +828,55 @@ int8_t read_directory(struct EXT2DriverRequest *request)
 
 int8_t read(struct EXT2DriverRequest request)
 {
-  uint32_t inode_idx;
-  if (!find_dir(request.parent_inode, &inode_idx))
-    return 4;
+  // Cari inode direktori parent
+  uint32_t parent_inode_idx = request.parent_inode;
+  struct EXT2Inode parent_inode;
+  // Baca inode parent
+  uint32_t group = inode_to_bgd(parent_inode_idx);
+  uint32_t local_inode = inode_to_local(parent_inode_idx);
+  struct EXT2InodeTable inode_table;
+  read_blocks(&inode_table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
+  parent_inode = inode_table.table[local_inode];
 
-  struct EXT2Inode dir_inode;
-  read_inode(inode_idx, &dir_inode);
+  // Cari entry file di direktori parent
+  uint8_t buf[BLOCK_SIZE];
+  read_blocks(buf, parent_inode.i_block[0], 1);
+  uint32_t offset = 0;
+  uint32_t found_inode = 0;
+  while (offset < BLOCK_SIZE) {
+    struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(buf + offset);
+    if (entry->inode != 0) {
+      char *entry_name = (char *)(entry + 1);
+      if (strlen(request.name) == entry->name_len && memcmp(entry_name, request.name, entry->name_len) == 0) {
+        found_inode = entry->inode;
+        break;
+      }
+    }
+    offset += entry->rec_len;
+  }
+  if (found_inode == 0) return 3;
 
-  uint32_t target_inode;
-  if (!find_inode_in_dir(&dir_inode, request.name, &target_inode))
-    return 3;
+  // Baca inode file
+  group = inode_to_bgd(found_inode);
+  local_inode = inode_to_local(found_inode);
+  read_blocks(&inode_table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
+  struct EXT2Inode file_inode = inode_table.table[local_inode];
 
-  struct EXT2Inode file_inode;
-  read_inode(target_inode, &file_inode);
+  // Jika direktori, return 1
+  if ((file_inode.i_mode & EXT2_S_IFDIR) == EXT2_S_IFDIR) return 1;
+  if (file_inode.i_size > request.buffer_size) return 2;
 
-  if (is_directory(&file_inode))
-    return 1;
-  if (file_inode.i_size > request.buffer_size)
-    return 2;
-
-  read_inode_data(&file_inode, request.buf, request.buffer_size);
+  // Baca data file
+  uint32_t bytes_read = 0;
+  uint32_t block_idx = 0;
+  while (bytes_read < file_inode.i_size && block_idx < file_inode.i_blocks) {
+    uint8_t block_buf[BLOCK_SIZE];
+    read_blocks(block_buf, file_inode.i_block[block_idx], 1);
+    uint32_t to_read = file_inode.i_size - bytes_read;
+    if (to_read > BLOCK_SIZE) to_read = BLOCK_SIZE;
+    memcpy((uint8_t *)request.buf + bytes_read, block_buf, to_read);
+    bytes_read += to_read;
+    block_idx++;
+  }
   return 0;
 }

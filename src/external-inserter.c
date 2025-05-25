@@ -154,6 +154,11 @@ int main(int argc, char *argv[])
 
     printf("Filename : %s\n", name);
     printf("Filesize : %zu bytes\n", filesize);
+    for(int i = 0; i <16 && i < filesize; i++)
+    {
+        printf("%02X ", file_buffer[i]);
+    }
+    printf("\n");
 
     // EXT2 operations
     printf("Menginisialisasi filesystem EXT2...\n");
@@ -210,6 +215,23 @@ int main(int argc, char *argv[])
     if (retcode == 0)
     {
         printf("File berhasil ditulis ke filesystem\n");
+        // Tambahan: Cari inode shell dan print 16 byte pertama dari blok pertama file shell di storage
+        struct EXT2Inode shell_inode;
+        uint32_t parent_inode_idx;
+        if (find_dir(request.parent_inode, &parent_inode_idx)) {
+            struct EXT2Inode parent_inode;
+            read_inode(parent_inode_idx, &parent_inode);
+            uint32_t shell_inode_idx;
+            if (find_inode_in_dir(&parent_inode, request.name, &shell_inode_idx)) {
+                read_inode(shell_inode_idx, &shell_inode);
+                uint32_t block = shell_inode.i_block[0];
+                printf("Blok pertama shell: %u\n", block);
+                uint8_t *block_ptr = image_storage + block * 1024;
+                printf("[DEBUG] 16 byte pertama blok shell di storage: ");
+                for (int i = 0; i < 16; i++) printf("%02X ", block_ptr[i]);
+                printf("\n");
+            }
+        }
     }
     else
     {

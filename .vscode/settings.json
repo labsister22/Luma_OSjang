@@ -1,13 +1,10 @@
 {
     "debug.onTaskErrors": "debugAnyway",
     "files.associations": {
-<<<<<<< HEAD
-        "stddef.h": "c"
-=======
+        "stddef.h": "c",
         "gdt.h": "c",
         "portio.h": "c",
         "framebuffer.h": "c",
         "idt.h": "c"
->>>>>>> origin
     },
 }
