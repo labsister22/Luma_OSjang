@@ -130,8 +130,9 @@ int main(void)
                     exit_shell = true;
                 }
                 if (buffer[0] == 'c' && buffer[1] == 'l' && buffer[2] == 'o' && buffer[3] == 'c' && buffer[4] == 'k' && buffer[5] == '\0') {
-                    print_string("Clock running...", current_row, 0);
                     clock_enabled = true;
+                    current_row++;
+                    print_string("Clock running...", current_row, 0);
                     current_row++;
                     break;
                 }
