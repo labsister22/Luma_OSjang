@@ -16,55 +16,108 @@ void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
 void print_string(const char* str, int row, int col) {
     syscall(6, (uint32_t)str, row, col);
 }
-
-void print_prompt(int row) {
-    print_string("$ ", row, 0);
+void print_char(char c, int row, int col) {
+    syscall(5, (uint32_t)&c, col, row);  // Note: col, row order
 }
+// void print_prompt(int row) {
+//     print_string("$ ", row, 0);
+// }
 
 void clear_screen() {
     syscall(8, 0, 0, 0);
+}
+void set_cursor(int col, int row) {
+    syscall(9, col, row, 0);  // col, row order
+}
+
+char get_char() {
+    char c = 0;
+    do {
+        syscall(4, (uint32_t)&c, 0, 0);
+        // Add small delay to prevent busy waiting
+        for (volatile int i = 0; i < 100; i++);
+    } while (c == 0);
+    return c;
 }
 
 int main(void)
 {
     // syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
     // return 0;
-    char buffer[64];
-    int row = 1;
+    char buffer[COMMAND_BUFFER_SIZE];
+    int current_row = 0;
+    int buffer_pos = 0;
+    int cursor_col = 0;
+    bool exit_shell = false;
 
     syscall(7, 0, 0, 0); // Activate keyboard
     clear_screen();
-    print_string("Welcome to LumaOS CLI!\n", 0, 0);
+    // print_string("Welcome-to-LumaOS-CLI\n", 0, 0);
 
-    while (1) {
-        print_prompt(row);
-        int pos = 0;
-        for (int i = 0; i < 64; i++) buffer[i] = 0;
-        int col = 2;
+    while (!exit_shell) {
+        print_string("luma@os:~$ ", current_row, 0);
+        cursor_col = 11; // Length of prompt
+        set_cursor(cursor_col, current_row);
+
+        buffer_pos = 0;
+        for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) {
+            buffer[i] = '\0';
+        }
         while (1) {
-            char c = 0;
-            syscall(4, (uint32_t)&c, 0, 0);
-            if (c == '\n' || c == '\r') break;
-            if ((c == 8 || c == 127) && pos > 0) {
-                pos--;
-                col--;
-                buffer[pos] = 0;
-                syscall(5, (uint32_t)" ", row, col);
-            } else if (c >= 32 && c <= 126 && pos < 63) {
-                buffer[pos++] = c;
-                syscall(5, (uint32_t)&c, row, col);
-                col++;
+            char c = get_char();
+            if (c == '\n' || c == '\r') {
+                // Enter pressed - process command
+                buffer[buffer_pos] = '\0';
+                
+                // Check for exit command before processing
+                if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'i' && buffer[3] == 't' && buffer[4] == '\0') {
+                    print_string("Goodbye!", current_row, 0);
+                    exit_shell = true;
+                }
+                
+                if (!exit_shell) {
+                    // process_command(buffer, &current_row);
+                }
+                current_row++;
+                break;
+                
+            } else if (c == '\b' || c == 127) {
+                // Backspace
+                if (buffer_pos > 0 && cursor_col > 11) {
+                    buffer_pos--;
+                    cursor_col--;
+                    buffer[buffer_pos] = '\0';
+                    
+                    // Clear character on screen
+                    print_char(' ', current_row, cursor_col);
+                    set_cursor(cursor_col, current_row);
+                }
+                
+            } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) {
+                // Regular printable character
+                buffer[buffer_pos] = c;
+                buffer_pos++;
+                
+                // Display character
+                print_char(c, current_row, cursor_col);
+                cursor_col++;
+                set_cursor(cursor_col, current_row);
+                
+                // Handle line wrap
+                if (cursor_col >= 80) {
+                    current_row++;
+                    cursor_col = 0;
+                    set_cursor(cursor_col, current_row);
+                }
             }
         }
-        buffer[pos] = 0;
-        row++;
-        print_string("You typed: ", row, 0);
-        print_string(buffer, row, 10);
-        row++;
-        if (row > 23) {
+        if (current_row >= 24) {
             clear_screen();
-            row = 1;
+            current_row = 2;
+            print_string("LumaOS Shell v1.0", 0, 0);
+            print_string("--- Screen cleared due to overflow ---", 1, 0);
         }
     }
+    
     return 0;
 }

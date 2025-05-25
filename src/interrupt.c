@@ -128,8 +128,8 @@ void syscall(struct InterruptFrame frame)
 
   case 5: // SYS_PUTCHAR - Print single character
     framebuffer_write(
-        frame.cpu.general.edx,     // col
-        frame.cpu.general.ecx,     // row
+        frame.cpu.general.edx,     // row
+        frame.cpu.general.ecx,     // col
         *((char *)frame.cpu.general.ebx), // character
         0x0F,                      // color (white on black)
         0x00);                     // bg_color
@@ -143,22 +143,24 @@ void syscall(struct InterruptFrame frame)
       
       // Simple puts implementation
       uint32_t i = 0;
+      uint8_t current_col = col;
+      uint8_t current_row = row;
       while (str[i] != '\0' && i < 1000) { // Safety limit
         if (str[i] == '\n') {
-          row++;
-          col = 0;
+          current_row++;
+          current_col = 0;
         } else {
-          framebuffer_write(col, row, str[i], 0x0F, 0x00);
-          col++;
-          if (col >= 80) {
-            col = 0;
-            row++;
+          framebuffer_write(current_row, current_col, str[i], 0x0F, 0x00);
+          current_col++;
+          if (current_col >= 80) {
+            current_col = 0;
+            current_row++;
           }
         }
         i++;
-        if (row >= 25) break; // Screen height limit
+        if (current_row >= 25) break; // Screen height limit
       }
-      // framebuffer_set_cursor(col, row); // Update cursor position
+      framebuffer_set_cursor(current_row, current_col); // Update cursor position
     }
     break;
 
@@ -173,16 +175,16 @@ void syscall(struct InterruptFrame frame)
 
   case 9: // SYS_SET_CURSOR - Set cursor position (new)
     framebuffer_set_cursor(
-        frame.cpu.general.ebx,     // col
-        frame.cpu.general.ecx);    // row
+        frame.cpu.general.ecx,     // row
+        frame.cpu.general.ebx);    // col
     break;
 
-  case 10: // SYS_GET_CURSOR - Get cursor position (new)
-    // You'll need to implement get_cursor functions in framebuffer
-    // For now, just return 0,0
-    *((uint8_t *)frame.cpu.general.ebx) = 0; // col
-    *((uint8_t *)frame.cpu.general.ecx) = 0; // row
-    break;
+  // case 10: // SYS_GET_CURSOR - Get cursor position (new)
+  //   // You'll need to implement get_cursor functions in framebuffer
+  //   // For now, just return 0,0
+  //   *((uint8_t *)frame.cpu.general.ebx) = 0; // col
+  //   *((uint8_t *)frame.cpu.general.ecx) = 0; // row
+    // break;
 
   default:
     // Unknown system call

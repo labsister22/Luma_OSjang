@@ -5,6 +5,8 @@
         "gdt.h": "c",
         "portio.h": "c",
         "framebuffer.h": "c",
-        "idt.h": "c"
+        "idt.h": "c",
+        "test_ext2.h": "c",
+        "interrupt.h": "c"
     },
 }
