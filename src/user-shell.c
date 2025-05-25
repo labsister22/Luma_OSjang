@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "header/stdlib/string.h"
+#include "header/filesystem/ext2.h"
+#include <stdio.h>
 
 #define COMMAND_BUFFER_SIZE 128
 
@@ -62,6 +64,111 @@ void get_time_string(char* buffer) {
     buffer[6] = '0' + (t.second / 10);
     buffer[7] = '0' + (t.second % 10);
     buffer[8] = '\0';
+}
+
+// Simple integer to string conversion (base 10)
+void itoa(int value, char* str) {
+    char buf[16];
+    int i = 0, j = 0;
+    if (value == 0) {
+        str[0] = '0'; str[1] = '\0'; return;
+    }
+    if (value < 0) {
+        str[j++] = '-';
+        value = -value;
+    }
+    while (value > 0) {
+        buf[i++] = (value % 10) + '0';
+        value /= 10;
+    }
+    while (i > 0) str[j++] = buf[--i];
+    str[j] = '\0';
+}
+
+// Minimal snprintf replacement for: "Found '%s' at inode %u" and "'%s' not found"
+void print_find_result(const char* name, uint32_t inode, int found, int row) {
+    char msg[64];
+    int i = 0;
+    if (found) {
+        const char* prefix = "Found '";
+        for (int j = 0; prefix[j]; j++) msg[i++] = prefix[j];
+        for (int j = 0; name[j] && i < 40; j++) msg[i++] = name[j];
+        msg[i++] = '\'';
+        const char* at = " at inode ";
+        for (int j = 0; at[j]; j++) msg[i++] = at[j];
+        char num[16];
+        itoa(inode, num);
+        for (int j = 0; num[j] && i < 60; j++) msg[i++] = num[j];
+        msg[i] = '\0';
+    } else {
+        msg[i++] = '\'';
+        for (int j = 0; name[j] && i < 40; j++) msg[i++] = name[j];
+        msg[i++] = '\'';
+        const char* notf = " not found";
+        for (int j = 0; notf[j]; j++) msg[i++] = notf[j];
+        msg[i] = '\0';
+    }
+    print_string(msg, row, 0);
+}
+
+// Find file or folder by name (exact match) in the entire EXT2 filesystem (recursive search)
+// Returns inode number if found, 0 if not found
+// name: null-terminated string (max 255 chars)
+uint32_t find_file_folder_recursive(uint32_t dir_inode_idx, const char *name) {
+    struct EXT2Inode dir_inode;
+    syscall(21, (uint32_t)&dir_inode, dir_inode_idx, 0); // 21: get inode by index
+    if ((dir_inode.i_mode & 0x4000) != 0x4000) return 0; // Not a directory (EXT2_S_IFDIR)
+
+    uint8_t buf[512];
+    syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1); // 23: read_blocks
+    uint32_t offset = 0;
+    // Cari di seluruh direktori, termasuk subdirektori
+    while (offset < 512) {
+        struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(buf + offset);
+        if (entry->inode == 0 || entry->rec_len == 0) break;
+        char *entry_name = (char *)(entry + 1);
+        int entry_len = entry->name_len;
+        if (entry_len > 255) entry_len = 255;
+        for (int k = 0; k < entry_len; k++) ;
+        // Skip "." and ".."
+        if (!((entry->name_len == 1 && entry_name[0] == '.') || (entry->name_len == 2 && entry_name[0] == '.' && entry_name[1] == '.'))) {
+            // Perbaikan: bandingkan persis sepanjang input, abaikan trailing null/space di EXT2
+            int input_len = strlen(name);
+            int match = 1;
+            if (entry_len == input_len) {
+                for (int m = 0; m < input_len; m++) {
+                    if (entry_name[m] != name[m]) {
+                        match = 0;
+                        break;
+                    }
+                }
+                // Pastikan tidak ada karakter non-null setelah input_len di entry_name
+                if (match) {
+                    for (int m = input_len; m < entry_len; m++) {
+                        if (entry_name[m] != '\0' && entry_name[m] != ' ') {
+                            match = 0;
+                            break;
+                        }
+                    }
+                }
+                if (match) return entry->inode;
+            }
+            // Jika entry adalah direktori, rekursif
+            struct EXT2Inode child_inode;
+            syscall(21, (uint32_t)&child_inode, entry->inode, 0);
+            if ((child_inode.i_mode & 0x4000) == 0x4000) {
+                uint32_t found = find_file_folder_recursive(entry->inode, name);
+                if (found != 0) return found;
+            }
+        }
+        offset += entry->rec_len;
+    }
+    return 0;
+}
+
+// Wrapper: search from root (inode 2)
+uint32_t find_file_folder(const char *name) {
+    return find_file_folder_recursive(2, name);
 }
 
 int main(void)
@@ -135,6 +242,20 @@ int main(void)
                     print_string("Clock running...", current_row, 0);
                     current_row++;
                     break;
+                }
+                // find command: find <name>
+                if (buffer[0] == 'f' && buffer[1] == 'i' && buffer[2] == 'n' && buffer[3] == 'd' && buffer[4] == ' ') {
+                    char *name = buffer + 5;
+                    if (name[0] != '\0') {
+                        uint32_t inode = find_file_folder(name);
+                        if (inode != 0) {
+                            print_find_result(name, inode, 1, ++current_row);
+                        } else {
+                            print_find_result(name, 0, 0, ++current_row);
+                        }
+                        current_row++;
+                        break;
+                    }
                 }
                 if (!exit_shell) {
                     // process_command(buffer, &current_row);
