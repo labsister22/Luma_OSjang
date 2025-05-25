@@ -7,41 +7,18 @@
 
 __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_directory = {
     .table = {
-        /* Entry 0: Identity mapping for bootloader and initial boot */
         [0] = {
-            .flag = {
-                .present_bit = 1,
-                .write_bit = 1,
-                .user_bit = 0,
-                .write_through_bit = 0,
-                .cache_disable_bit = 0,
-                .accessed_bit = 0,
-                .dirty_bit = 0,
-                .use_pagesize_4_mb = 1,
-            },
-            .global_page = 0,
-            .pat = 0,
-            .reserved_1 = 0,
-            .lower_address = 0, /* Maps physical 0x00000000-0x00400000 to virtual 0x00000000-0x00400000 */
-            .higher_address = 0},
-        /* Entry 0x300: Higher-half kernel mapping
-           Maps physical 0x00000000-0x00400000 to virtual 0xC0000000-0xC0400000
-           This includes framebuffer at 0xB8000 -> 0xC00B8000 */
-        [0x300] = {.flag = {
-                       .present_bit = 1,
-                       .write_bit = 1,
-                       .user_bit = 0,
-                       .write_through_bit = 0,
-                       .cache_disable_bit = 0,
-                       .accessed_bit = 0,
-                       .dirty_bit = 0,
-                       .use_pagesize_4_mb = 1,
-                   },
-                   .global_page = 0,
-                   .reserved_1 = 0,
-                   .pat = 0,
-                   .lower_address = 0, /* index 0 = 0x00000000 physical address */
-                   .higher_address = 0},
+            .flag.present_bit = 1,
+            .flag.write_bit = 1,
+            .flag.use_pagesize_4_mb = 1,
+            .lower_address = 0,
+        },
+        [0x300] = {
+            .flag.present_bit = 1,
+            .flag.write_bit = 1,
+            .flag.use_pagesize_4_mb = 1,
+            .lower_address = 0,
+        },
     }};
 
 static struct PageManagerState page_manager_state = {

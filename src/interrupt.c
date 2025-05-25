@@ -60,6 +60,7 @@ void pic_remap(void)
 
 void main_interrupt_handler(struct InterruptFrame frame)
 {
+  
   uint32_t int_num = frame.int_number;
 
   switch (int_num)
