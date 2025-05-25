@@ -1,4 +1,3 @@
-
 #include "header/cpu/interrupt.h"
 #include "header/cpu/portio.h"
 #include "header/driver/keyboard.h"
@@ -128,8 +127,8 @@ void syscall(struct InterruptFrame frame)
 
   case 5: // SYS_PUTCHAR - Print single character
     framebuffer_write(
-        frame.cpu.general.edx,     // col
-        frame.cpu.general.ecx,     // row
+        frame.cpu.general.ecx,     // col
+        frame.cpu.general.edx,     // row
         *((char *)frame.cpu.general.ebx), // character
         0x0F,                      // color (white on black)
         0x00);                     // bg_color
@@ -140,25 +139,22 @@ void syscall(struct InterruptFrame frame)
       char *str = (char *)frame.cpu.general.ebx;
       uint8_t col = frame.cpu.general.edx;
       uint8_t row = frame.cpu.general.ecx;
-      
-      // Simple puts implementation
+      // Print string horizontally, ignore '\n'
       uint32_t i = 0;
       while (str[i] != '\0' && i < 1000) { // Safety limit
-        if (str[i] == '\n') {
-          row++;
-          col = 0;
-        } else {
+        if (str[i] != '\n' && str[i] != '\r') {
           framebuffer_write(col, row, str[i], 0x0F, 0x00);
-          col++;
-          if (col >= 80) {
-            col = 0;
-            row++;
+          row++;
+          if (row >= 80) {
+            row = 0;
+            col++;
           }
+          if (col >= 25) break;
         }
         i++;
-        if (row >= 25) break; // Screen height limit
       }
-      // framebuffer_set_cursor(col, row); // Update cursor position
+      // Set cursor to the position after the last character printed
+      framebuffer_set_cursor(col, row);
     }
     break;
 

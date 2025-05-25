@@ -17,8 +17,8 @@ void print_string(const char* str, int row, int col) {
     syscall(6, (uint32_t)str, row, col);
 }
 
-void print_prompt(int row) {
-    print_string("$ ", row, 0);
+void print_prompt(int row, int col) {
+    print_string("$ ", row, col);
 }
 
 void clear_screen() {
@@ -27,20 +27,19 @@ void clear_screen() {
 
 int main(void)
 {
-    // syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
-    // return 0;
     char buffer[64];
     int row = 1;
+    int col = 2;
 
     syscall(7, 0, 0, 0); // Activate keyboard
     clear_screen();
-    print_string("Welcome to LumaOS CLI!\n", 0, 0);
+    print_string("Welcome to LumaOS CLI!", 0, 0);
 
     while (1) {
-        print_prompt(row);
+        col = 2;
+        print_prompt(0, row);
         int pos = 0;
         for (int i = 0; i < 64; i++) buffer[i] = 0;
-        int col = 2;
         while (1) {
             char c = 0;
             syscall(4, (uint32_t)&c, 0, 0);
@@ -58,8 +57,7 @@ int main(void)
         }
         buffer[pos] = 0;
         row++;
-        print_string("You typed: ", row, 0);
-        print_string(buffer, row, 10);
+        print_string(buffer, row, 0);
         row++;
         if (row > 23) {
             clear_screen();
