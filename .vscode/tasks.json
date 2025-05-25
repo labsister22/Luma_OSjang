@@ -19,11 +19,11 @@
         {
             "type": "shell",
             "label": "Launch QEMU",
-            "command": "echo Starting QEMU&qemu-system-i386 -s -S -cdrom OS2024.iso",
+            "command": "make run",
             "isBackground": true,
             "dependsOn": "Build OS",
             "options": {
-                "cwd": "${workspaceFolder}/bin"
+                "cwd": "${workspaceFolder}"
             },
             "problemMatcher": {
                 "pattern": [
