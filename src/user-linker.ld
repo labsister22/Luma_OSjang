@@ -1,7 +1,7 @@
 ENTRY(_start)
 
 SECTIONS {
-    . = 0x00000000; /* Assuming OS will load this program at virtual address */
+    . = 0x400000;  /* Load address must match kernel's execution address */
     
     .text ALIGN(4): {
         [a-z\/]*crt0.o(.text)  /* Put the entrypoint in the front of executable */
@@ -21,6 +21,5 @@ SECTIONS {
         *(.rodata*)
     }
     _linker_user_program_end = .;
-    ASSERT ((_linker_user_program_end <= 1 * 1024 * 1024), "Error: User program linking result is more than 1 MiB")
+    ASSERT ((_linker_user_program_end <= 0x400000 + 1 * 1024 * 1024), "Error: User program linking result is more than 1 MiB")
 }
-

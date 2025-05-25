@@ -50,7 +50,6 @@ void update_page_directory_entry(
   page_dir->table[page_index].global_page = 0;
   page_dir->table[page_index].reserved_1 = 0;
   page_dir->table[page_index].pat = 0;
-  page_dir->table[page_index].reserved_1 = 0;
   page_dir->table[page_index].reserved_2 = 0;
   page_dir->table[page_index].higher_address = 0; // Keep as 0 for 32-bit systems
 
@@ -87,8 +86,8 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
 
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
 
-  // Don't allow allocation of kernel reserved pages (0x0-0x3FF and 0x300-0x301)
-  if (page_index == 0 || page_index == 0x300 || page_index == 0x301)
+  // Don't allow allocation of kernel reserved pages (0x0 and 0x300)
+  if (page_index == 0 || page_index == 0x300)
   {
     return false; // Reserved for kernel
   }
@@ -99,9 +98,9 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
     return false; // Already allocated
   }
 
-  // Find free physical frame
+  // Find free physical frame (start from 1 to skip kernel frame 0)
   uint32_t frame_index;
-  for (frame_index = 0; frame_index < PAGE_FRAME_MAX_COUNT; frame_index++)
+  for (frame_index = 1; frame_index < PAGE_FRAME_MAX_COUNT; frame_index++)
   {
     if (!page_manager_state.page_frame_map[frame_index])
     {
@@ -151,6 +150,12 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
 
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
 
+  // Don't allow freeing of kernel reserved pages
+  if (page_index == 0 || page_index == 0x300)
+  {
+    return false; // Can't free kernel pages
+  }
+
   // Check if the page is allocated
   if (!page_dir->table[page_index].flag.present_bit)
   {
@@ -161,9 +166,9 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
   uint32_t frame_index = page_dir->table[page_index].lower_address;
 
   // Validate frame index
-  if (frame_index >= PAGE_FRAME_MAX_COUNT)
+  if (frame_index >= PAGE_FRAME_MAX_COUNT || frame_index == 0)
   {
-    return false; // Invalid frame index
+    return false; // Invalid frame index or trying to free kernel frame
   }
 
   // Mark frame as free

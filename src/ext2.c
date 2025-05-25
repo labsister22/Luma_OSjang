@@ -798,17 +798,21 @@ int8_t read_directory(struct EXT2DriverRequest *request)
   return 0; // Success
 }
 
-int8_t read(struct EXT2DriverRequest request)
+int8_t read(struct EXT2DriverRequest *request)
 {
+  // Input validation - only check pointers, not embedded arrays
+  if (!request)
+    return -1; // Invalid parameters
+
   uint32_t inode_idx;
-  if (!find_dir(request.parent_inode, &inode_idx))
+  if (!find_dir(request->parent_inode, &inode_idx))
     return 4;
 
   struct EXT2Inode dir_inode;
   read_inode(inode_idx, &dir_inode);
 
   uint32_t target_inode;
-  if (!find_inode_in_dir(&dir_inode, request.name, &target_inode))
+  if (!find_inode_in_dir(&dir_inode, request->name, &target_inode))
     return 3;
 
   struct EXT2Inode file_inode;
@@ -816,9 +820,10 @@ int8_t read(struct EXT2DriverRequest request)
 
   if (is_directory(&file_inode))
     return 1;
-  if (file_inode.i_size > request.buffer_size)
+
+  if (file_inode.i_size > request->buffer_size)
     return 2;
 
-  read_inode_data(&file_inode, request.buf, request.buffer_size);
+  read_inode_data(&file_inode, request->buf, file_inode.i_size);
   return 0;
 }

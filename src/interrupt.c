@@ -60,7 +60,6 @@ void pic_remap(void)
 
 void main_interrupt_handler(struct InterruptFrame frame)
 {
-  
   uint32_t int_num = frame.int_number;
 
   switch (int_num)
@@ -76,18 +75,22 @@ void main_interrupt_handler(struct InterruptFrame frame)
 
   case 0x21:
     // Keyboard interrupt (IRQ1)
-    // ACK keyboard interrupt (IRQ1)
     keyboard_isr();
-    // pic_ack(IRQ_KEYBOARD);
     break;
+
   case 0x30:
+    // Debug: Show that syscall was triggered
+    framebuffer_write(10, 0, 'S', 0xE, 0x0); // Yellow 'S' for syscall
     syscall(frame);
+    break;
 
   default:
+    // Debug: Show unknown interrupt
+    framebuffer_write(11, 0, 'U', 0xC, 0x0); // Red 'U' for unknown
     break;
   }
 
-  // Send End of Interrupt (EOI) untuk IRQ >= 0x20
+  // Send End of Interrupt (EOI) για IRQ >= 0x20
   if (int_num >= PIC1_OFFSET && int_num <= PIC2_OFFSET + 7)
   {
     pic_ack(int_num - PIC1_OFFSET);
@@ -105,7 +108,7 @@ void syscall(struct InterruptFrame frame)
   {
   case 0:
     *((int8_t *)frame.cpu.general.ecx) = read(
-        *(struct EXT2DriverRequest *)frame.cpu.general.ebx);
+        (struct EXT2DriverRequest *)frame.cpu.general.ebx);
     break;
   case 4:
     get_keyboard_buffer((char *)frame.cpu.general.ebx);

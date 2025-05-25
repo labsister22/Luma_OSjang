@@ -16,30 +16,26 @@ void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
 
 int main(void)
 {
-
-    struct BlockBuffer bl[BLOCK_COUNT] = {0};
-    struct EXT2DriverRequest request = {
-        .buf = &bl,
-        .name = "shell",
-        .name_len = 5,
-        .parent_inode = 1, // Root directory inode
-        .buffer_size = BLOCK_SIZE * BLOCK_COUNT,
-        .is_directory = false};
-    int32_t retcode;
-    syscall(0, (uint32_t)&request, (uint32_t)&retcode, 0);
-    __asm__("int3");
-    if (retcode == 0)
-    {
-        __asm__("int3");
-        syscall(6, (uint32_t)"owo\n", 4, 0xF);
-    }
+    // Print welcome message
+    syscall(6, (uint32_t)"Shell Started!\n", 15, 0xA); // Green text
 
     char buf;
-    syscall(7, 0, 0, 0);
     while (true)
     {
+        // Print prompt
+        syscall(6, (uint32_t)"> ", 2, 0xF); // White prompt
+
+        // Read character
         syscall(4, (uint32_t)&buf, 0, 0);
+
+        // Echo character
         syscall(5, (uint32_t)&buf, 0xF, 0);
+
+        // Handle Enter key
+        if (buf == '\n' || buf == '\r')
+        {
+            syscall(6, (uint32_t)"\n", 1, 0xF); // New line
+        }
     }
 
     return 0;

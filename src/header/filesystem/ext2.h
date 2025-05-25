@@ -316,7 +316,7 @@ int8_t read_directory(struct EXT2DriverRequest *prequest);
  * @param request All attribute will be used except is_dir for read, buffer_size will limit reading count
  * @return Error code: 0 success - 1 not a file - 2 not enough buffer - 3 not found - 4 parent folder invalid - -1 unknown
  */
-int8_t read(struct EXT2DriverRequest request);
+int8_t read(struct EXT2DriverRequest *request);
 
 /**
  * @brief EXT2 write, write a file or a folder to file system
