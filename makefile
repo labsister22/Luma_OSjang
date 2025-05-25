@@ -32,11 +32,12 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/string.o \
        $(OUTPUT_FOLDER)/ext2.o \
        $(OUTPUT_FOLDER)/test_ext2.o\
+	   $(OUTPUT_FOLDER)/cmos.o \
        $(OUTPUT_FOLDER)/paging.o 
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
 
 # run: iso
 # 	qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/OS2025.iso
@@ -143,6 +144,9 @@ $(OUTPUT_FOLDER)/test_ext2.o: $(SOURCE_FOLDER)/test_ext2.c
 
 # Compile paging (C)
 $(OUTPUT_FOLDER)/paging.o: $(SOURCE_FOLDER)/paging.c
+	$(CC) $(CFLAGS) $< -o $@
+
+$(OUTPUT_FOLDER)/cmos.o: $(SOURCE_FOLDER)/cmos.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Link Semua Object Files - FIX: Use TAB instead of spaces

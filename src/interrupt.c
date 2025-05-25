@@ -1,4 +1,3 @@
-
 #include "header/cpu/interrupt.h"
 #include "header/cpu/portio.h"
 #include "header/driver/keyboard.h"
@@ -6,6 +5,7 @@
 #include "header/filesystem/test_ext2.h"
 #include "header/filesystem/ext2.h"
 #include "header/text/framebuffer.h"
+#include "header/driver/cmos.h"
 
 struct TSSEntry _interrupt_tss_entry = {
     .ss0 = GDT_KERNEL_DATA_SEGMENT_SELECTOR,
@@ -113,6 +113,14 @@ void activate_keyboard_interrupt(void)
   out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
 }
 
+struct rtc_time {
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+};
+
+struct Time get_cmos_time();
+
 void syscall(struct InterruptFrame frame)
 {
   switch (frame.cpu.general.eax)
@@ -178,7 +186,15 @@ void syscall(struct InterruptFrame frame)
         frame.cpu.general.ecx,     // row
         frame.cpu.general.ebx);    // col
     break;
-
+  case 10:
+      {
+          struct Time t = get_cmos_time();
+          struct Time* out = (struct Time*) frame.cpu.general.ebx;
+          out->hour = t.hour;
+          out->minute = t.minute;
+          out->second = t.second;
+      }
+      break;
   // case 10: // SYS_GET_CURSOR - Get cursor position (new)
   //   // You'll need to implement get_cursor functions in framebuffer
   //   // For now, just return 0,0
