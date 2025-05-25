@@ -13,8 +13,8 @@ ISO_NAME      = OS2025
 WARNING_CFLAG = -Wall -Wextra -Werror
 DEBUG_CFLAG   = -fshort-wchar -g
 STRIP_CFLAG   = -nostdlib -fno-stack-protector -nostartfiles -nodefaultlibs -ffreestanding
-CFLAGS        = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -Iheader
-AFLAGS        = -f elf32 -g -F dwarf
+CFLAGS = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -Iheader -g -gdwarf-2
+AFLAGS = -f elf32 -g -F dwarf
 LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 DISK_NAME     = storage
 
@@ -25,41 +25,73 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/portio.o \
        $(OUTPUT_FOLDER)/framebuffer.o \
        $(OUTPUT_FOLDER)/interrupt.o \
+	   $(OUTPUT_FOLDER)/intsetups.o \
        $(OUTPUT_FOLDER)/idt.o	\
        $(OUTPUT_FOLDER)/keyboard.o	\
-	   $(OUTPUT_FOLDER)/disk.o	\
-       $(OUTPUT_FOLDER)/intsetups.o	\
+       $(OUTPUT_FOLDER)/disk.o	\
        $(OUTPUT_FOLDER)/string.o \
-	   $(OUTPUT_FOLDER)/ext2.o \
-	   $(OUTPUT_FOLDER)/test_ext2.o \
-	   $(OUTPUT_FOLDER)/paging.o
-
+       $(OUTPUT_FOLDER)/ext2.o \
+       $(OUTPUT_FOLDER)/test_ext2.o\
+       $(OUTPUT_FOLDER)/paging.o 
 
 # Run QEMU
 run: all
-	@mkdir -p disk
-	@cp bin/sample-image.bin bin/storage.bin
-	@qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+	@qemu-system-i386 -s -S -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
 
-# Build All
-all: build
+# run: iso
+# 	qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/OS2025.iso
 
-build: iso
+# Build All - updated to include everything needed
+all: iso disk insert-shell inserter user-shell
+
+# Build just the kernel
+build: iso disk insert-shell inserter user-shell
 
 # Clean
 clean:
-
 	rm -rf $(OBJS) $(OUTPUT_FOLDER)/kernel $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
-		$(OUTPUT_FOLDER)/iso $(OUTPUT_FOLDER)/storage.bin
+        $(OUTPUT_FOLDER)/iso $(OUTPUT_FOLDER)/storage.bin  $(OUTPUT_FOLDER)/shell \
+        $(OUTPUT_FOLDER)/shell_elf $(OUTPUT_FOLDER)/inserter 
 
 # Disk
+.PHONY: disk
 disk:
-	@mkdir -p disk
+	@mkdir -p bin
+	@rm -f bin/storage.bin
 	@qemu-img create -f raw bin/storage.bin 4M
+	@echo "Storage file bin/storage.bin dibuat."
+
+# Inserter
+inserter:
+	@mkdir -p $(OUTPUT_FOLDER)
+	@$(CC) -Wno-builtin-declaration-mismatch -g -I$(SOURCE_FOLDER) \
+        -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
+        $(SOURCE_FOLDER)/string.c \
+        $(SOURCE_FOLDER)/ext2.c \
+        $(SOURCE_FOLDER)/external-inserter.c \
+        -o $(OUTPUT_FOLDER)/inserter \
+        -DDEBUG_MODE
+
+user-shell:
+	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/crt0.s -o crt0.o
+	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/user-shell.c -o user-shell.o
+	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/stdlib/string.c -o string.o
+	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=binary \
+		crt0.o user-shell.o string.o -o $(OUTPUT_FOLDER)/shell
+	@echo Linking object shell object files and generate flat binary...
+	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=elf32-i386 \
+		crt0.o user-shell.o string.o -o $(OUTPUT_FOLDER)/shell_elf
+	@echo Linking object shell object files and generate ELF32 for debugging...
+	@size --target=binary $(OUTPUT_FOLDER)/shell
+	@rm -f *.o
+
+insert-shell: disk inserter user-shell
+	@echo Inserting shell into root directory...
+	@cd $(OUTPUT_FOLDER); ./inserter shell 2 $(DISK_NAME).bin
+
 # Compile Kernel Entry Point (Assembly)
 $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 	@$(ASM) $(AFLAGS) $< -o $@
-
 
 # Compile intsetup (Assembly)
 $(OUTPUT_FOLDER)/intsetups.o: $(SOURCE_FOLDER)/intsetups.s
@@ -93,16 +125,16 @@ $(OUTPUT_FOLDER)/idt.o: $(SOURCE_FOLDER)/idt.c
 $(OUTPUT_FOLDER)/keyboard.o: $(SOURCE_FOLDER)/keyboard.c
 	$(CC) $(CFLAGS) $< -o $@
 
-#Compile disk (C)
+# Compile disk (C)
 $(OUTPUT_FOLDER)/disk.o: $(SOURCE_FOLDER)/disk.c
+	$(CC) $(CFLAGS) $< -o $@
+
+# Compile EXT2 (C)
+$(OUTPUT_FOLDER)/ext2.o: $(SOURCE_FOLDER)/ext2.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Compile string (C)
 $(OUTPUT_FOLDER)/string.o: $(SOURCE_FOLDER)/string.c
-	$(CC) $(CFLAGS) $< -o $@
-
-# Compile ext2 (C)
-$(OUTPUT_FOLDER)/ext2.o: $(SOURCE_FOLDER)/ext2.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Compile test_ext2 (C)
@@ -113,13 +145,10 @@ $(OUTPUT_FOLDER)/test_ext2.o: $(SOURCE_FOLDER)/test_ext2.c
 $(OUTPUT_FOLDER)/paging.o: $(SOURCE_FOLDER)/paging.c
 	$(CC) $(CFLAGS) $< -o $@
 
-# Link Semua Object Files
+# Link Semua Object Files - FIX: Use TAB instead of spaces
 $(OUTPUT_FOLDER)/kernel: $(OBJS)
 	@$(LIN) $(LFLAGS) $(OBJS) -o $@
 	@echo "Linking object files and generating ELF32 kernel..."
-
-
-
 
 # Generate ISO
 iso: $(OUTPUT_FOLDER)/kernel
@@ -137,6 +166,3 @@ iso: $(OUTPUT_FOLDER)/kernel
 		-boot-info-table                \
 		-o $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
 		$(OUTPUT_FOLDER)/iso
-
-#buat run make make disk
-

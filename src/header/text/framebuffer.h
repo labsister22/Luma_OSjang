@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define FRAMEBUFFER_MEMORY_OFFSET ((uint8_t *)0xB8000)
+#define FRAMEBUFFER_MEMORY_OFFSET ((uint16_t *)0XC00B8000)
 #define CURSOR_PORT_CMD 0x03D4
 #define CURSOR_PORT_DATA 0x03D5
 #define FRAMEBUFFER_WIDTH 80
@@ -46,5 +46,6 @@ void framebuffer_set_cursor(uint8_t r, uint8_t c);
  */
 void framebuffer_clear(void);
 void print_str(const char *str, uint8_t row, uint8_t col, uint8_t color);
+void puts(const char *str, uint8_t row, uint8_t col, uint8_t color);
 
 #endif

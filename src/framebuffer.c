@@ -17,9 +17,11 @@ void framebuffer_set_cursor(uint8_t row, uint8_t col)
 
 void framebuffer_write(uint8_t row, uint8_t col, char c, uint8_t fg, uint8_t bg)
 {
-  uint16_t *fb = (uint16_t *)FRAMEBUFFER_MEMORY_OFFSET;
-  uint16_t pos = row * 80 + col;
-  fb[pos] = (fg | (bg << 4)) << 8 | c;
+  uint16_t attrib = (bg << 4) | (fg & 0x0F);
+  uint16_t * location;
+  location = FRAMEBUFFER_MEMORY_OFFSET + (row * 80 + col);
+  *location = c | (attrib << 8);
+  framebuffer_set_cursor(row, col);
 }
 
 void framebuffer_clear(void)
@@ -56,4 +58,8 @@ void print_str(const char *str, uint8_t row, uint8_t col, uint8_t color)
     // Update cursor position after each character
     framebuffer_set_cursor(current_row, current_col);
   }
+}
+
+void puts(const char* str, uint8_t row, uint8_t col, uint8_t color) {
+    print_str(str, row, col, color);
 }

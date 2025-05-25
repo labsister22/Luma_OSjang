@@ -1,3 +1,4 @@
+
 #ifndef _PAGING_H
 #define _PAGING_H
 
@@ -53,14 +54,11 @@ struct PageDirectoryEntry
 {
   struct PageDirectoryEntryFlag flag;
   uint16_t global_page : 1;
-  uint16_t available : 3;
-  uint16_t pat_bit : 1;
-  uint16_t reserved_1 : 9;
+  uint16_t reserved_1 : 3;
+  uint16_t pat : 1;
+  uint16_t higher_address : 8;
+  uint16_t reserved_2 : 1;
   uint16_t lower_address : 10;
-  uint8_t reserved_2 : 1;
-  uint8_t available_2 : 3;
-  uint8_t higher_address : 4;
-  uint32_t reserved_3 : 24;
 } __attribute__((packed));
 
 /**
@@ -138,5 +136,12 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
  * @return              Will return true if success, false otherwise
  */
 bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr);
+
+/**
+ * Activate paging with the given page directory
+ *
+ * @param page_dir Page directory to activate
+ */
+void paging_activate(struct PageDirectory *page_dir);
 
 #endif

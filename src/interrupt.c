@@ -3,17 +3,21 @@
 #include "header/cpu/portio.h"
 #include "header/driver/keyboard.h"
 #include "header/cpu/gdt.h"
+#include "header/filesystem/test_ext2.h"
+#include "header/filesystem/ext2.h"
+#include "header/text/framebuffer.h"
 
 struct TSSEntry _interrupt_tss_entry = {
-    .ss0  = GDT_KERNEL_DATA_SEGMENT_SELECTOR,
+    .ss0 = GDT_KERNEL_DATA_SEGMENT_SELECTOR,
 };
 
-void set_tss_kernel_current_stack(void) {
-    uint32_t stack_ptr;
-    // Reading base stack frame instead esp
-    __asm__ volatile ("mov %%ebp, %0": "=r"(stack_ptr) : /* <Empty> */);
-    // Add 8 because 4 for ret address and other 4 is for stack_ptr variable
-    _interrupt_tss_entry.esp0 = stack_ptr + 8; 
+void set_tss_kernel_current_stack(void)
+{
+  uint32_t stack_ptr;
+  // Reading base stack frame instead esp
+  __asm__ volatile("mov %%ebp, %0" : "=r"(stack_ptr) : /* <Empty> */);
+  // Add 8 because 4 for ret address and other 4 is for stack_ptr variable
+  _interrupt_tss_entry.esp0 = stack_ptr + 8;
 }
 
 void io_wait(void)
@@ -56,6 +60,7 @@ void pic_remap(void)
 
 void main_interrupt_handler(struct InterruptFrame frame)
 {
+  
   uint32_t int_num = frame.int_number;
 
   switch (int_num)
@@ -75,6 +80,8 @@ void main_interrupt_handler(struct InterruptFrame frame)
     keyboard_isr();
     // pic_ack(IRQ_KEYBOARD);
     break;
+  case 0x30:
+    syscall(frame);
 
   default:
     break;
@@ -90,4 +97,34 @@ void main_interrupt_handler(struct InterruptFrame frame)
 void activate_keyboard_interrupt(void)
 {
   out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
+}
+
+void syscall(struct InterruptFrame frame)
+{
+  switch (frame.cpu.general.eax)
+  {
+  case 0:
+    *((int8_t *)frame.cpu.general.ecx) = read(
+        *(struct EXT2DriverRequest *)frame.cpu.general.ebx);
+    break;
+  case 4:
+    get_keyboard_buffer((char *)frame.cpu.general.ebx);
+    break;
+  case 6:
+    puts(
+        (char *)frame.cpu.general.ebx,
+        frame.cpu.general.ecx,
+        frame.cpu.general.edx,
+        0); // Assuming puts() exist in kernel
+    break;
+  case 7:
+    keyboard_state_activate();
+    break;
+  }
+}
+
+void isr_handler(struct InterruptFrame frame)
+{
+  // Simple handler - just return
+  (void)frame; // Suppress unused parameter warning
 }
