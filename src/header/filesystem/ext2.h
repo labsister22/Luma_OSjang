@@ -8,11 +8,11 @@
 #include "../stdlib/string.h"
 
 /* -- IF2130 File System constants -- */
-#define BOOT_SECTOR 0                                                            // legacy from FAT32 filesystem IF2130 OS
-#define DISK_SPACE 4194304u                                                      // 4MB disk space (because our disk or storage.bin is 4MB)
-#define EXT2_SUPER_MAGIC 0xEF53                                                  // this indicating that the filesystem used by OS is ext2
-#define INODE_SIZE sizeof(struct EXT2Inode)                                      // size of inode
-#define INODES_PER_TABLE (BLOCK_SIZE / INODE_SIZE)                               // number of inode per block (512 / )
+#define BOOT_SECTOR 0                              // legacy from FAT32 filesystem IF2130 OS
+#define DISK_SPACE 4194304u                        // 4MB disk space (because our disk or storage.bin is 4MB)
+#define EXT2_SUPER_MAGIC 0xEF53                    // this indicating that the filesystem used by OS is ext2
+#define INODE_SIZE sizeof(struct EXT2Inode)        // size of inode
+#define INODES_PER_TABLE (BLOCK_SIZE / INODE_SIZE) // number of inode per block (512 / )
 // #define GROUPS_COUNT (BLOCK_SIZE / sizeof(struct EXT2BlockGroupDescriptor)) / 2u // number of groups in the filesystem
 // #define BLOCKS_PER_GROUP (DISK_SPACE / BLOCK_SIZE / GROUPS_COUNT)                // number of blocks per group
 // #define INODES_TABLE_BLOCK_COUNT 16u
@@ -402,6 +402,5 @@ void sync_superblock(void);
 void add_inode_to_dir(struct EXT2Inode *dir_inode, uint32_t inode, const char *name);
 bool is_empty_directory(struct EXT2Inode *inode);
 void remove_inode_from_dir(struct EXT2Inode *dir_inode, const char *name);
-
 
 #endif
