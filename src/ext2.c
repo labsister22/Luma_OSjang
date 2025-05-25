@@ -565,11 +565,28 @@ void create_ext2(void)
   // Atur nilai penting lainnya
   superblock.s_inodes_count = INODES_PER_GROUP * GROUPS_COUNT;
   superblock.s_blocks_count = BLOCKS_PER_GROUP * GROUPS_COUNT;
-  superblock.s_free_blocks_count = superblock.s_blocks_count - 3; // Boot, superblock, BGD
-  superblock.s_free_inodes_count = superblock.s_inodes_count - 1; // Root inode
+  superblock.s_free_blocks_count = superblock.s_blocks_count - 9; // Boot(0), super(1), BGD(2), block_bitmap(3), inode_bitmap(4), inode_table(5-8)
+  superblock.s_free_inodes_count = superblock.s_inodes_count - 1; // Root inode will be allocated
   superblock.s_first_data_block = 0;
+  superblock.s_log_block_size = 0; // 0 means 1024 byte blocks
+  superblock.s_log_frag_size = 0;  // Same as block size
   superblock.s_blocks_per_group = BLOCKS_PER_GROUP;
+  superblock.s_frags_per_group = BLOCKS_PER_GROUP; // Same as blocks for simplicity
   superblock.s_inodes_per_group = INODES_PER_GROUP;
+  superblock.s_mtime = 0;
+  superblock.s_wtime = 0;
+  superblock.s_mnt_count = 0;
+  superblock.s_max_mnt_count = 20;
+  superblock.s_state = 1; // Clean
+  superblock.s_errors = 1; // Continue on errors
+  superblock.s_minor_rev_level = 0;
+  superblock.s_lastcheck = 0;
+  superblock.s_checkinterval = 0;
+  superblock.s_creator_os = 0; // Linux
+  superblock.s_rev_level = 0;  // Original format
+  superblock.s_def_resuid = 0;
+  superblock.s_def_resgid = 0;
+  superblock.s_first_ino = 11; // First non-reserved inode
 
   // Tulis superblock
   write_blocks(&superblock, 1, 1);
@@ -581,7 +598,7 @@ void create_ext2(void)
     bgd_table.table[i].bg_block_bitmap = 3 + i * (1 + 1 + INODES_TABLE_BLOCK_COUNT);
     bgd_table.table[i].bg_inode_bitmap = 4 + i * (1 + 1 + INODES_TABLE_BLOCK_COUNT);
     bgd_table.table[i].bg_inode_table = 5 + i * (1 + 1 + INODES_TABLE_BLOCK_COUNT);
-    bgd_table.table[i].bg_free_blocks_count = BLOCKS_PER_GROUP;
+    bgd_table.table[i].bg_free_blocks_count = BLOCKS_PER_GROUP - 9; // Account for reserved blocks
     bgd_table.table[i].bg_free_inodes_count = INODES_PER_GROUP;
   }
 
@@ -589,11 +606,22 @@ void create_ext2(void)
   write_blocks(&bgd_table, 2, 1);
 
   // Inisialisasi block dan inode bitmap
-  uint8_t bitmap[BLOCK_SIZE] = {0};
+  uint8_t block_bitmap[BLOCK_SIZE] = {0};
+  uint8_t inode_bitmap[BLOCK_SIZE] = {0};
+  
+  // Mark reserved blocks as used (boot sector, superblock, BGD table, bitmaps, inode table)
+  // Blocks 0-8 are reserved for: boot(0), super(1), bgd(2), block_bitmap(3), inode_bitmap(4), inode_table(5-8)
+  for (uint32_t i = 0; i < 9; i++)
+  {
+    uint32_t byte_offset = i / 8;
+    uint32_t bit_offset = i % 8;
+    block_bitmap[byte_offset] |= (1 << bit_offset);
+  }
+  
   for (uint32_t i = 0; i < GROUPS_COUNT; i++)
   {
-    write_blocks(bitmap, bgd_table.table[i].bg_block_bitmap, 1);
-    write_blocks(bitmap, bgd_table.table[i].bg_inode_bitmap, 1);
+    write_blocks(block_bitmap, bgd_table.table[i].bg_block_bitmap, 1);
+    write_blocks(inode_bitmap, bgd_table.table[i].bg_inode_bitmap, 1);
   }
 
   // Buat root directory (inode 2)

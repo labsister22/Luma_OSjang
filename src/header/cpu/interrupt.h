@@ -178,4 +178,7 @@ struct TSSEntry {
 void set_tss_kernel_current_stack(void);
 void syscall(struct InterruptFrame frame);
 
+extern struct TSSEntry _interrupt_tss_entry;
+
+
 #endif
