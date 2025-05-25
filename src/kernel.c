@@ -30,7 +30,7 @@ void kernel_setup(void) {
     struct EXT2DriverRequest request = {
         .buf                   = (uint8_t*) 0,
         .name                  = "shell",
-        .parent_inode          = 1,
+        .parent_inode          = 2,
         .buffer_size           = 0x100000,
         .name_len              = 5,
     };
@@ -42,3 +42,4 @@ void kernel_setup(void) {
 
     while (true);
 }
+

@@ -4,7 +4,7 @@ SECTIONS {
     . = 0x00000000; /* Assuming OS will load this program at virtual address */
     
     .text ALIGN(4): {
-        [a-z\/]*crt0.o(.text)  /* Put the entrypoint in the front of executable */
+        *crt0.o(.text)  /* Put the entrypoint in the front of executable */
         *(.text)
     }
 

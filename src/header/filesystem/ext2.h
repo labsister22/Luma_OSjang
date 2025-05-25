@@ -68,7 +68,8 @@ struct EXT2Superblock
   uint32_t s_free_blocks_count; // 32bit value indicating the total number of free blocks, including the number of reserved blocks
   uint32_t s_free_inodes_count; // 32bit value indicating the total number of free inodes. This is a sum of all free inodes of all the block groups.
   uint32_t s_first_data_block;  // 32bit value identifying the first data block, in other word the id of the block containing the superblock structure.
-  uint32_t s_first_ino;         // 32bit value indicating the first inode that can be used. Set this to 1, indicating root inode (maybe)
+  uint32_t s_log_block_size;    // 32bit value indicating the block size
+  uint32_t s_log_frag_size;     // 32bit value indicating the fragment size
 
   uint32_t s_blocks_per_group;
   /** 32bit value indicating the total number of blocks per group.
@@ -87,7 +88,22 @@ struct EXT2Superblock
    * This value must be a perfect multiple of the number of inodes that can fit in a block ((1024<<s_log_block_size)/s_inode_size).
    */
 
+  uint32_t s_mtime;        // 32bit value indicating when the file system was last mounted
+  uint32_t s_wtime;        // 32bit value indicating when the file system was last written to
+  uint16_t s_mnt_count;    // 16bit value indicating how many times the file system has been mounted
+  uint16_t s_max_mnt_count; // 16bit value indicating the maximum number of times the file system may be mounted
   uint16_t s_magic; // 16bit value indicating the file system type. For ext2, this value is 0xEF53.(DEFINE as EXT2_SUPER_MAGIC)
+  uint16_t s_state;        // 16bit value indicating the file system state
+  uint16_t s_errors;       // 16bit value indicating what to do when an error is detected
+  uint16_t s_minor_rev_level; // 16bit value indicating the minor revision level
+  uint32_t s_lastcheck;    // 32bit value indicating when the file system was last checked
+  uint32_t s_checkinterval; // 32bit value indicating the maximum time between file system checks
+  uint32_t s_creator_os;   // 32bit value indicating the operating system that created the file system
+  uint32_t s_rev_level;    // 32bit value indicating the revision level
+  uint16_t s_def_resuid;   // 16bit value indicating the default user id for reserved blocks
+  uint16_t s_def_resgid;   // 16bit value indicating the default group id for reserved blocks
+
+  uint32_t s_first_ino;         // 32bit value indicating the first inode that can be used. Set this to 1, indicating root inode (maybe)
 
   uint8_t s_prealloc_blocks;     // 8bit value indicating the number of blocks to preallocate for files.
   uint8_t s_prealloc_dir_blocks; // 8bit value indicating the number of blocks to preallocate for directories.
