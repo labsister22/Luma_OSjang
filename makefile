@@ -34,11 +34,13 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/test_ext2.o\
 	   $(OUTPUT_FOLDER)/cmos.o \
        $(OUTPUT_FOLDER)/paging.o \
-			 $(OUTPUT_FOLDER)/process.o  
+			 $(OUTPUT_FOLDER)/process.o \
+			 $(OUTPUT_FOLDER)/scheduler.o \
+			 $(OUTPUT_FOLDER)/context-switch.o			  
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -S -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
 
 # run: iso
 # 	qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/OS2025.iso
@@ -99,6 +101,10 @@ $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 $(OUTPUT_FOLDER)/intsetup.o: $(SOURCE_FOLDER)/intsetup.s
 	$(ASM) $(AFLAGS) $< -o $@
 
+# Compile context-switch (Assembly)
+$(OUTPUT_FOLDER)/context-switch.o: $(SOURCE_FOLDER)/context-switch.s
+	$(ASM) $(AFLAGS) $< -o $@
+
 # Compile Kernel (C)
 $(OUTPUT_FOLDER)/kernel.o: $(SOURCE_FOLDER)/kernel.c
 	$(CC) $(CFLAGS) $< -o $@
@@ -149,6 +155,10 @@ $(OUTPUT_FOLDER)/paging.o: $(SOURCE_FOLDER)/paging.c
 
 # Compile process (C)
 $(OUTPUT_FOLDER)/process.o: $(SOURCE_FOLDER)/process.c
+	$(CC) $(CFLAGS) $< -o $@
+
+# Compile scheduler (C)
+$(OUTPUT_FOLDER)/scheduler.o: $(SOURCE_FOLDER)/scheduler.c
 	$(CC) $(CFLAGS) $< -o $@
 
 $(OUTPUT_FOLDER)/cmos.o: $(SOURCE_FOLDER)/cmos.c

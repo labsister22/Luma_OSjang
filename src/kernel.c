@@ -12,6 +12,7 @@
 #include "header/filesystem/test_ext2.h"
 #include "header/memory/paging.h"
 #include "header/process/process.h"
+#include "header/scheduler/scheduler.h"
 
 void kernel_setup(void)
 {
@@ -43,5 +44,5 @@ void kernel_setup(void)
 
     process_create_user_process(request);
     paging_use_page_directory(_process_list[0].context.page_directory_virtual_addr);
-    kernel_execute_user_program((void *)0x0);
+    scheduler_switch_to_next_process();
 }
