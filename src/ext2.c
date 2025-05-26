@@ -577,7 +577,7 @@ void create_ext2(void)
   superblock.s_wtime = 0;
   superblock.s_mnt_count = 0;
   superblock.s_max_mnt_count = 20;
-  superblock.s_state = 1; // Clean
+  superblock.s_state = 1;  // Clean
   superblock.s_errors = 1; // Continue on errors
   superblock.s_minor_rev_level = 0;
   superblock.s_lastcheck = 0;
@@ -608,7 +608,7 @@ void create_ext2(void)
   // Inisialisasi block dan inode bitmap
   uint8_t block_bitmap[BLOCK_SIZE] = {0};
   uint8_t inode_bitmap[BLOCK_SIZE] = {0};
-  
+
   // Mark reserved blocks as used (boot sector, superblock, BGD table, bitmaps, inode table)
   // Blocks 0-8 are reserved for: boot(0), super(1), bgd(2), block_bitmap(3), inode_bitmap(4), inode_table(5-8)
   for (uint32_t i = 0; i < 9; i++)
@@ -617,7 +617,7 @@ void create_ext2(void)
     uint32_t bit_offset = i % 8;
     block_bitmap[byte_offset] |= (1 << bit_offset);
   }
-  
+
   for (uint32_t i = 0; i < GROUPS_COUNT; i++)
   {
     write_blocks(block_bitmap, bgd_table.table[i].bg_block_bitmap, 1);
@@ -826,32 +826,65 @@ int8_t read_directory(struct EXT2DriverRequest *request)
   return 0; // Success
 }
 
-int8_t read(struct EXT2DriverRequest *request)
+int8_t read(struct EXT2DriverRequest request)
 {
-  // Input validation - only check pointers, not embedded arrays
-  if (!request)
-    return -1; // Invalid parameters
+  // Cari inode direktori parent
+  uint32_t parent_inode_idx = request.parent_inode;
+  struct EXT2Inode parent_inode;
+  // Baca inode parent
+  uint32_t group = inode_to_bgd(parent_inode_idx);
+  uint32_t local_inode = inode_to_local(parent_inode_idx);
+  struct EXT2InodeTable inode_table;
+  read_blocks(&inode_table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
+  parent_inode = inode_table.table[local_inode];
 
-  uint32_t inode_idx;
-  if (!find_dir(request->parent_inode, &inode_idx))
-    return 4;
-
-  struct EXT2Inode dir_inode;
-  read_inode(inode_idx, &dir_inode);
-
-  uint32_t target_inode;
-  if (!find_inode_in_dir(&dir_inode, request->name, &target_inode))
+  // Cari entry file di direktori parent
+  uint8_t buf[BLOCK_SIZE];
+  read_blocks(buf, parent_inode.i_block[0], 1);
+  uint32_t offset = 0;
+  uint32_t found_inode = 0;
+  while (offset < BLOCK_SIZE)
+  {
+    struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(buf + offset);
+    if (entry->inode != 0)
+    {
+      char *entry_name = (char *)(entry + 1);
+      if (strlen(request.name) == entry->name_len && memcmp(entry_name, request.name, entry->name_len) == 0)
+      {
+        found_inode = entry->inode;
+        break;
+      }
+    }
+    offset += entry->rec_len;
+  }
+  if (found_inode == 0)
     return 3;
 
-  struct EXT2Inode file_inode;
-  read_inode(target_inode, &file_inode);
+  // Baca inode file
+  group = inode_to_bgd(found_inode);
+  local_inode = inode_to_local(found_inode);
+  read_blocks(&inode_table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
+  struct EXT2Inode file_inode = inode_table.table[local_inode];
 
-  if (is_directory(&file_inode))
+  // Jika direktori, return 1
+  if ((file_inode.i_mode & EXT2_S_IFDIR) == EXT2_S_IFDIR)
     return 1;
-
-  if (file_inode.i_size > request->buffer_size)
+  if (file_inode.i_size > request.buffer_size)
     return 2;
 
-  read_inode_data(&file_inode, request->buf, file_inode.i_size);
+  // Baca data file
+  uint32_t bytes_read = 0;
+  uint32_t block_idx = 0;
+  while (bytes_read < file_inode.i_size && block_idx < file_inode.i_blocks)
+  {
+    uint8_t block_buf[BLOCK_SIZE];
+    read_blocks(block_buf, file_inode.i_block[block_idx], 1);
+    uint32_t to_read = file_inode.i_size - bytes_read;
+    if (to_read > BLOCK_SIZE)
+      to_read = BLOCK_SIZE;
+    memcpy((uint8_t *)request.buf + bytes_read, block_buf, to_read);
+    bytes_read += to_read;
+    block_idx++;
+  }
   return 0;
 }

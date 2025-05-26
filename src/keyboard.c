@@ -577,45 +577,17 @@ void keyboard_state_deactivate(void)
 }
 
 // Get keyboard buffer value and flush the buffer - @param buf Pointer to char buffer
-void get_keyboard_buffer(char *buf)
-{
-  if (keyboard_state.buffer_index > 0)
-  {
-    char first_char = keyboard_state.keyboard_buffer[0];
-
-    // Menangani karakter backspace
-    if (first_char == '\b')
-    {
-      // Jika buffer tidak kosong, hapus karakter terakhir
-      if (keyboard_state.buffer_index > 1)
-      {
-        memmove(keyboard_state.keyboard_buffer, keyboard_state.keyboard_buffer + 1, keyboard_state.buffer_index - 1);
+void get_keyboard_buffer(char *buf) {
+    if (keyboard_state.buffer_index > 0) {
+        // Ambil karakter terakhir yang dimasukkan
+        *buf = keyboard_state.keyboard_buffer[keyboard_state.buffer_index - 1];
         keyboard_state.buffer_index--;
-        *buf = '\0'; // Mengabaikan karakter backspace untuk output
-      }
+        
+        // Clear karakter yang sudah diambil
+        keyboard_state.keyboard_buffer[keyboard_state.buffer_index] = '\0';
+    } else {
+        *buf = '\0';
     }
-    // Menangani karakter enter
-    else if (first_char == '\n')
-    {
-      *buf = '\n'; // Output karakter enter ke buf
-      memmove(keyboard_state.keyboard_buffer, keyboard_state.keyboard_buffer + 1, keyboard_state.buffer_index - 1);
-      keyboard_state.buffer_index--;
-    }
-    else
-    {
-      *buf = first_char; // Ambil karakter pertama dan pindahkan buffer
-      memmove(keyboard_state.keyboard_buffer, keyboard_state.keyboard_buffer + 1, keyboard_state.buffer_index - 1);
-      keyboard_state.buffer_index--;
-    }
-
-    // Reset buffer visual setelah penghapusan atau pengetikan baru
-    // Di sini Anda bisa menambahkan kode untuk menghapus karakter lama yang ada di buffer visual
-    memset(keyboard_state.keyboard_buffer + keyboard_state.buffer_index, 0, KEYBOARD_BUFFER_SIZE - keyboard_state.buffer_index);
-  }
-  else
-  {
-    *buf = 0; // Tidak ada input, set buf ke 0
-  }
 }
 
 /* -- Keyboard Interrupt Service Routine -- */
@@ -624,14 +596,14 @@ void get_keyboard_buffer(char *buf)
  * Handling keyboard interrupt & process scancodes into ASCII character.
  * Will start listen and process keyboard scancode if keyboard_input_on.
  */
-void keyboard_isr(void)
-{
-  uint8_t scancode = in(KEYBOARD_DATA_PORT);
+void keyboard_isr(void) {
+    uint8_t scancode = in(KEYBOARD_DATA_PORT);
 
-  if (!keyboard_state.keyboard_input_on)
-    return;
-  
-  if (scancode == LEFT_SHIFT_PRESSED || scancode == RIGHT_SHIFT_PRESSED) {
+    if (!keyboard_state.keyboard_input_on)
+        return;
+    
+    // Handle shift keys
+    if (scancode == LEFT_SHIFT_PRESSED || scancode == RIGHT_SHIFT_PRESSED) {
         key_state |= SHIFT_PRESSED;
         return;
     }
@@ -639,95 +611,59 @@ void keyboard_isr(void)
         key_state &= ~SHIFT_PRESSED;
         return;
     }
-    // Handle Caps Lock (toggle on press, not release)
     else if (scancode == CAPS_LOCK_PRESSED && !(scancode & 0x80)) {
-        key_state ^= CAPS_LOCK_ACTIVE;  // Toggle Caps Lock state
+        key_state ^= CAPS_LOCK_ACTIVE;
         return;
     }
 
-  if (!(scancode & 0x80))
-  {
-    char ascii;
-    if (key_state & SHIFT_PRESSED) {
-      ascii = keyboard_scancode_1_to_shifted_ascii_map[scancode];
-    } else {
-      ascii = keyboard_scancode_1_to_ascii_map[scancode];
-      
-      if ((key_state & CAPS_LOCK_ACTIVE) && ascii >= 'a' && ascii <= 'z') {
-          ascii = to_uppercase(ascii);
-      }
-    }
-    if (ascii && keyboard_state.buffer_index < KEYBOARD_BUFFER_SIZE - 1)
-    {
-      // Store character in buffer
-      keyboard_state.keyboard_buffer[keyboard_state.buffer_index++] = ascii;
-
-      // Create a temporary single character string
-      char temp[2] = {ascii, '\0'};
-
-      // Handle special characters
-      if (ascii == '\n')
-      {
-        line_end_positions[keyboard_state.cursor_y] = keyboard_state.cursor_x;
-        keyboard_state.cursor_x = 0;
-        keyboard_state.cursor_y++;
-      }
-      else if (ascii == '\b')
-      {
-        handle_backspace();
-      }
-      else
-      {
-        print_str(temp, keyboard_state.cursor_y, keyboard_state.cursor_x, 0x07);
-        keyboard_state.cursor_x++;
-
-        // Update line end position if this is now the rightmost character
-        if (keyboard_state.cursor_x > line_end_positions[keyboard_state.cursor_y]) {
-            line_end_positions[keyboard_state.cursor_y] = keyboard_state.cursor_x;
+    // Only process key press (not release)
+    if (!(scancode & 0x80)) {
+        char ascii;
+        if (key_state & SHIFT_PRESSED) {
+            ascii = keyboard_scancode_1_to_shifted_ascii_map[scancode];
+        } else {
+            ascii = keyboard_scancode_1_to_ascii_map[scancode];
+            
+            if ((key_state & CAPS_LOCK_ACTIVE) && ascii >= 'a' && ascii <= 'z') {
+                ascii = to_uppercase(ascii);
+            }
         }
-
-        // Handle line wrapping
-        if (keyboard_state.cursor_x >= FRAMEBUFFER_WIDTH)
-        {
-            line_end_positions[keyboard_state.cursor_y] = FRAMEBUFFER_WIDTH - 1;
-            keyboard_state.cursor_x = 0;
-            keyboard_state.cursor_y++;
+        
+        // HANYA simpan ke buffer, JANGAN tampilkan
+        if (ascii && keyboard_state.buffer_index < KEYBOARD_BUFFER_SIZE - 1) {
+            keyboard_state.keyboard_buffer[keyboard_state.buffer_index++] = ascii;
         }
-      }
-      // Update hardware cursor position
-      framebuffer_set_cursor(keyboard_state.cursor_y, keyboard_state.cursor_x);
     }
-  }
 }
 
-void handle_backspace() {
-  if (keyboard_state.cursor_x == 0 && keyboard_state.cursor_y > 0) {
-    keyboard_state.cursor_y--; // Move to previous line
+// void handle_backspace() {
+//   if (keyboard_state.cursor_x == 0 && keyboard_state.cursor_y > 0) {
+//     keyboard_state.cursor_y--; // Move to previous line
     
-    // Go to the last known character position on the previous line
-    keyboard_state.cursor_x = line_end_positions[keyboard_state.cursor_y];
+//     // Go to the last known character position on the previous line
+//     keyboard_state.cursor_x = line_end_positions[keyboard_state.cursor_y];
     
-    // If the line was empty, position at the start
-    if (keyboard_state.cursor_x == 0) {
-        keyboard_state.cursor_x = 0;
-    }
+//     // If the line was empty, position at the start
+//     if (keyboard_state.cursor_x == 0) {
+//         keyboard_state.cursor_x = 0;
+//     }
     
-    // Clear the character at the cursor position
-    print_str(" ", keyboard_state.cursor_y, keyboard_state.cursor_x, 0x07);
-  } 
-  else if (keyboard_state.cursor_x > 0) {
-    // Normal backspace within a line
-    keyboard_state.cursor_x--;
-    print_str(" ", keyboard_state.cursor_y, keyboard_state.cursor_x, 0x07);
+//     // Clear the character at the cursor position
+//     print_str(" ", keyboard_state.cursor_y, keyboard_state.cursor_x, 0x07);
+//   } 
+//   else if (keyboard_state.cursor_x > 0) {
+//     // Normal backspace within a line
+//     keyboard_state.cursor_x--;
+//     print_str(" ", keyboard_state.cursor_y, keyboard_state.cursor_x, 0x07);
     
-    // Update the line end position if needed
-    if (keyboard_state.cursor_x < line_end_positions[keyboard_state.cursor_y]) {
-        line_end_positions[keyboard_state.cursor_y] = keyboard_state.cursor_x;
-    }
-  }
+//     // Update the line end position if needed
+//     if (keyboard_state.cursor_x < line_end_positions[keyboard_state.cursor_y]) {
+//         line_end_positions[keyboard_state.cursor_y] = keyboard_state.cursor_x;
+//     }
+//   }
   
-  if (keyboard_state.buffer_index > 0) {
-    keyboard_state.buffer_index--;
-    keyboard_state.keyboard_buffer[keyboard_state.buffer_index] = '\0';
-  }
-}
+//   if (keyboard_state.buffer_index > 0) {
+//     keyboard_state.buffer_index--;
+//     keyboard_state.keyboard_buffer[keyboard_state.buffer_index] = '\0';
+//   }
+// }

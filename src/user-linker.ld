@@ -4,7 +4,7 @@ SECTIONS {
     . = 0x400000;  /* Load address must match kernel's execution address */
     
     .text ALIGN(4): {
-        [a-z\/]*crt0.o(.text)  /* Put the entrypoint in the front of executable */
+        *crt0.o(.text)  /* Put the entrypoint in the front of executable */
         *(.text)
     }
 

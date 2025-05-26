@@ -39,11 +39,11 @@ void update_page_directory_entry(
   }
 
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
-  page_dir->table[page_index].flag = flag;
 
   // Physical address needs to be divided by 4MB to get the page frame number (>> 22)
   // Ensure physical address is 4MB aligned
   uint32_t phys_addr = (uint32_t)physical_addr;
+  page_dir->table[page_index].flag = flag;
   page_dir->table[page_index].lower_address = (phys_addr >> 22) & 0x3FF;
 
   // Reset other fields to 0 to ensure no old values remain
@@ -79,15 +79,15 @@ bool paging_allocate_check(uint32_t amount)
 
 bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr)
 {
-  if (!page_dir || !virtual_addr)
+  if (!page_dir)
   {
     return false;
   }
 
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
 
-  // Don't allow allocation of kernel reserved pages (0x0 and 0x300)
-  if (page_index == 0 || page_index == 0x300)
+  // Don't allow allocation of kernel reserved pages (0x0-0x3FF and 0x300-0x301)
+  if (page_index >= 768)
   {
     return false; // Reserved for kernel
   }
@@ -98,7 +98,7 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
     return false; // Already allocated
   }
 
-  // Find free physical frame (start from 1 to skip kernel frame 0)
+  // Find free physical frame
   uint32_t frame_index;
   for (frame_index = 1; frame_index < PAGE_FRAME_MAX_COUNT; frame_index++)
   {
@@ -135,7 +135,7 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
   page_dir->table[page_index].pat = 0;
   page_dir->table[page_index].reserved_1 = 0;
   page_dir->table[page_index].reserved_2 = 0;
-  page_dir->table[page_index].higher_address = 0; // Keep as 0 for 32-bit systems
+  page_dir->table[page_index].higher_address = (frame_index >> 10) & 0x3FF; // Keep as 0 for 32-bit systems
 
   flush_single_tlb(virtual_addr);
   return true;
@@ -143,17 +143,17 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
 
 bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr)
 {
-  if (!page_dir || !virtual_addr)
+  if (!page_dir)
   {
     return false;
   }
-
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
-
-  // Don't allow freeing of kernel reserved pages
-  if (page_index == 0 || page_index == 0x300)
-  {
-    return false; // Can't free kernel pages
+  // FIX: Hanya tolak kernel space (>= 3GB), IZINKAN page 0 untuk user
+  // Page 0 = alamat 0x00000000-0x003FFFFF (4MB pertama)
+  // Page 0x300 = alamat 0xC0000000+ (kernel space)
+  if (page_index >= 768)
+  {               // 768 * 4MB = 3GB (kernel space start)
+    return false; // Tolak kernel space
   }
 
   // Check if the page is allocated
@@ -162,33 +162,25 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
     return false; // Not allocated
   }
 
-  // Get the physical frame index
-  uint32_t frame_index = page_dir->table[page_index].lower_address;
+  // FIX: Get frame index from page directory entry
+  uint32_t frame_index = page_dir->table[page_index].lower_address |
+                         (page_dir->table[page_index].higher_address << 10);
 
   // Validate frame index
   if (frame_index >= PAGE_FRAME_MAX_COUNT || frame_index == 0)
   {
-    return false; // Invalid frame index or trying to free kernel frame
+    return false; // Invalid frame or reserved frame
   }
 
   // Mark frame as free
   page_manager_state.page_frame_map[frame_index] = false;
   page_manager_state.free_page_frame_count++;
 
-  // Clear page directory entry completely
+  // Clear page directory entry
   page_dir->table[page_index].flag.present_bit = 0;
   page_dir->table[page_index].flag.write_bit = 0;
   page_dir->table[page_index].flag.user_bit = 0;
-  page_dir->table[page_index].flag.write_through_bit = 0;
-  page_dir->table[page_index].flag.cache_disable_bit = 0;
-  page_dir->table[page_index].flag.accessed_bit = 0;
-  page_dir->table[page_index].flag.dirty_bit = 0;
-  page_dir->table[page_index].flag.use_pagesize_4_mb = 0;
-  page_dir->table[page_index].global_page = 0;
-  page_dir->table[page_index].pat = 0;
-  page_dir->table[page_index].reserved_1 = 0;
   page_dir->table[page_index].lower_address = 0;
-  page_dir->table[page_index].reserved_2 = 0;
   page_dir->table[page_index].higher_address = 0;
 
   flush_single_tlb(virtual_addr);
@@ -260,4 +252,28 @@ bool paging_is_page_allocated(struct PageDirectory *page_dir, void *virtual_addr
 
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
   return page_dir->table[page_index].flag.present_bit;
+}
+bool paging_map_user_page(struct PageDirectory *page_dir, void *virtual_addr, void *physical_addr)
+{
+  if (!page_dir)
+    return false;
+  uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
+  if (page_index >= 768)
+    return false;
+
+  if (((uint32_t)physical_addr & 0x3FFFFF) != 0)
+    return false;
+  // Set user flags
+  struct PageDirectoryEntryFlag flag = {
+      .present_bit = 1,
+      .write_bit = 1,
+      .user_bit = 1,
+      .write_through_bit = 0,
+      .cache_disable_bit = 0,
+      .accessed_bit = 0,
+      .dirty_bit = 0,
+      .use_pagesize_4_mb = 1};
+
+  update_page_directory_entry(page_dir, physical_addr, virtual_addr, flag);
+  return true;
 }
