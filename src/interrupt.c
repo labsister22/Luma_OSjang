@@ -187,20 +187,37 @@ void syscall(struct InterruptFrame frame)
         frame.cpu.general.ebx);    // col
     break;
   case 10:
-      {
-          struct Time t = get_cmos_time();
-          struct Time* out = (struct Time*) frame.cpu.general.ebx;
-          out->hour = t.hour;
-          out->minute = t.minute;
-          out->second = t.second;
-      }
-      break;
-  // case 10: // SYS_GET_CURSOR - Get cursor position (new)
-  //   // You'll need to implement get_cursor functions in framebuffer
-  //   // For now, just return 0,0
-  //   *((uint8_t *)frame.cpu.general.ebx) = 0; // col
-  //   *((uint8_t *)frame.cpu.general.ecx) = 0; // row
-    // break;
+    {
+      struct Time t = get_cmos_time();
+      struct Time* out = (struct Time*) frame.cpu.general.ebx;
+      out->hour = t.hour;
+      out->minute = t.minute;
+      out->second = t.second;
+    }
+    break;
+  case 11: // SYS_COPY_FILE - Copy file
+    {
+      char *source = (char *)frame.cpu.general.ebx;
+      char *dest = (char *)frame.cpu.general.ecx;
+      uint32_t parent_inode = frame.cpu.general.edx;
+      
+      // Return result via eax register
+      int8_t result = copy_file(source, dest, parent_inode);
+      frame.cpu.general.eax = (uint32_t)result;
+    }
+    break;
+
+  case 12: // SYS_COPY_DIR - Copy directory
+    {
+      char *source = (char *)frame.cpu.general.ebx;
+      char *dest = (char *)frame.cpu.general.ecx;
+      uint32_t parent_inode = frame.cpu.general.edx;
+      
+      // Return result via eax register
+      int8_t result = copy_directory(source, dest, parent_inode);
+      frame.cpu.general.eax = (uint32_t)result;
+    }
+    break;
 
   default:
     // Unknown system call

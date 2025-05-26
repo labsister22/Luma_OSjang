@@ -419,4 +419,11 @@ void add_inode_to_dir(struct EXT2Inode *dir_inode, uint32_t inode, const char *n
 bool is_empty_directory(struct EXT2Inode *inode);
 void remove_inode_from_dir(struct EXT2Inode *dir_inode, const char *name);
 
+int8_t copy_file(const char *source_name, const char *dest_name, uint32_t parent_inode);
+int8_t copy_directory(const char *source_name, const char *dest_name, uint32_t parent_inode);
+
+// Memory management for kernel
+void *malloc(size_t size);
+void free(void *ptr);
+
 #endif
