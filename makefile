@@ -25,7 +25,7 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/portio.o \
        $(OUTPUT_FOLDER)/framebuffer.o \
        $(OUTPUT_FOLDER)/interrupt.o \
-	   $(OUTPUT_FOLDER)/intsetups.o \
+	   $(OUTPUT_FOLDER)/intsetup.o \
        $(OUTPUT_FOLDER)/idt.o	\
        $(OUTPUT_FOLDER)/keyboard.o	\
        $(OUTPUT_FOLDER)/disk.o	\
@@ -33,11 +33,12 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/ext2.o \
        $(OUTPUT_FOLDER)/test_ext2.o\
 	   $(OUTPUT_FOLDER)/cmos.o \
-       $(OUTPUT_FOLDER)/paging.o 
+       $(OUTPUT_FOLDER)/paging.o \
+			 $(OUTPUT_FOLDER)/process.o  
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+	@qemu-system-i386 -s -S -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
 
 # run: iso
 # 	qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/OS2025.iso
@@ -95,7 +96,7 @@ $(OUTPUT_FOLDER)/kernel-entrypoint.o: $(SOURCE_FOLDER)/kernel-entrypoint.s
 	@$(ASM) $(AFLAGS) $< -o $@
 
 # Compile intsetup (Assembly)
-$(OUTPUT_FOLDER)/intsetups.o: $(SOURCE_FOLDER)/intsetups.s
+$(OUTPUT_FOLDER)/intsetup.o: $(SOURCE_FOLDER)/intsetup.s
 	$(ASM) $(AFLAGS) $< -o $@
 
 # Compile Kernel (C)
@@ -144,6 +145,10 @@ $(OUTPUT_FOLDER)/test_ext2.o: $(SOURCE_FOLDER)/test_ext2.c
 
 # Compile paging (C)
 $(OUTPUT_FOLDER)/paging.o: $(SOURCE_FOLDER)/paging.c
+	$(CC) $(CFLAGS) $< -o $@
+
+# Compile process (C)
+$(OUTPUT_FOLDER)/process.o: $(SOURCE_FOLDER)/process.c
 	$(CC) $(CFLAGS) $< -o $@
 
 $(OUTPUT_FOLDER)/cmos.o: $(SOURCE_FOLDER)/cmos.c
