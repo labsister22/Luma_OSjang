@@ -195,6 +195,15 @@ void syscall(struct InterruptFrame frame)
           out->second = t.second;
       }
       break;
+  case 21:
+  {
+    struct EXT2Inode* out_inode = (struct EXT2Inode*) frame.cpu.general.ebx;
+    uint32_t inode_idx = frame.cpu.general.ecx;
+    read_inode(inode_idx, out_inode); // Pastikan ada fungsi read_inode di ext2.c
+    break;
+    
+  }
+      
   // case 10: // SYS_GET_CURSOR - Get cursor position (new)
   //   // You'll need to implement get_cursor functions in framebuffer
   //   // For now, just return 0,0

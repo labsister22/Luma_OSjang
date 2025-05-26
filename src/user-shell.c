@@ -85,90 +85,99 @@ void itoa(int value, char* str) {
     str[j] = '\0';
 }
 
-// Minimal snprintf replacement for: "Found '%s' at inode %u" and "'%s' not found"
-void print_find_result(const char* name, uint32_t inode, int found, int row) {
-    char msg[64];
-    int i = 0;
-    if (found) {
-        const char* prefix = "Found '";
-        for (int j = 0; prefix[j]; j++) msg[i++] = prefix[j];
-        for (int j = 0; name[j] && i < 40; j++) msg[i++] = name[j];
-        msg[i++] = '\'';
-        const char* at = " at inode ";
-        for (int j = 0; at[j]; j++) msg[i++] = at[j];
-        char num[16];
-        itoa(inode, num);
-        for (int j = 0; num[j] && i < 60; j++) msg[i++] = num[j];
-        msg[i] = '\0';
-    } else {
-        msg[i++] = '\'';
-        for (int j = 0; name[j] && i < 40; j++) msg[i++] = name[j];
-        msg[i++] = '\'';
-        const char* notf = " not found";
-        for (int j = 0; notf[j]; j++) msg[i++] = notf[j];
-        msg[i] = '\0';
-    }
-    print_string(msg, row, 0);
-}
+void find_recursive(uint32_t curr_inode, const char* search_name, char* path, int* found, int* current_row) {
+    if (*found) return;
 
-// Find file or folder by name (exact match) in the entire EXT2 filesystem (recursive search)
-// Returns inode number if found, 0 if not found
-// name: null-terminated string (max 255 chars)
-uint32_t find_file_folder_recursive(uint32_t dir_inode_idx, const char *name) {
     struct EXT2Inode dir_inode;
-    syscall(21, (uint32_t)&dir_inode, dir_inode_idx, 0); // 21: get inode by index
-    if ((dir_inode.i_mode & 0x4000) != 0x4000) return 0; // Not a directory (EXT2_S_IFDIR)
+    syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
 
-    uint8_t buf[512];
-    syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1); // 23: read_blocks
-    uint32_t offset = 0;
-    // Cari di seluruh direktori, termasuk subdirektori
-    while (offset < 512) {
-        struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(buf + offset);
-        if (entry->inode == 0 || entry->rec_len == 0) break;
-        char *entry_name = (char *)(entry + 1);
-        int entry_len = entry->name_len;
-        if (entry_len > 255) entry_len = 255;
-        for (int k = 0; k < entry_len; k++) ;
-        // Skip "." and ".."
-        if (!((entry->name_len == 1 && entry_name[0] == '.') || (entry->name_len == 2 && entry_name[0] == '.' && entry_name[1] == '.'))) {
-            // Perbaikan: bandingkan persis sepanjang input, abaikan trailing null/space di EXT2
-            int input_len = strlen(name);
-            int match = 1;
-            if (entry_len == input_len) {
-                for (int m = 0; m < input_len; m++) {
-                    if (entry_name[m] != name[m]) {
-                        match = 0;
-                        break;
-                    }
-                }
-                // Pastikan tidak ada karakter non-null setelah input_len di entry_name
-                if (match) {
-                    for (int m = input_len; m < entry_len; m++) {
-                        if (entry_name[m] != '\0' && entry_name[m] != ' ') {
-                            match = 0;
-                            break;
-                        }
-                    }
-                }
-                if (match) return entry->inode;
+    for (int blk = 0; blk < 12; blk++) {
+        if (dir_inode.i_block[blk] == 0) continue;
+        uint8_t buf[512];
+        syscall(23, (uint32_t)buf, dir_inode.i_block[blk], 1);
+
+        uint32_t offset = 0;
+        while (offset + sizeof(struct EXT2DirectoryEntry) <= 512 && !(*found)) {
+            struct EXT2DirectoryEntry* entry = (struct EXT2DirectoryEntry*)(buf + offset);
+
+            if (entry->rec_len < 8 || entry->rec_len + offset > 512) break;
+            if (entry->inode == 0 || entry->name_len == 0 || entry->name_len > 255) {
+                offset += entry->rec_len;
+                continue;
             }
-            // Jika entry adalah direktori, rekursif
+
+            // Ambil nama dan pastikan null-terminated
+            char entry_name[256];
+            for (int i = 0; i < entry->name_len && i < 255; i++) {
+                entry_name[i] = ((char*)(entry + 1))[i];
+            }
+            entry_name[entry->name_len] = '\0';
+
+            // Skip . dan ..
+            if ((entry->name_len == 1 && entry_name[0] == '.' && entry_name[1] == '\0') ||
+                (entry->name_len == 2 && entry_name[0] == '.' && entry_name[1] == '.' && entry_name[2] == '\0')) {
+                offset += entry->rec_len;
+                continue;
+            }
+
+            // Bangun path baru
+            char new_path[512];
+            int path_len = 0;
+            while (path[path_len] != '\0') {
+                new_path[path_len] = path[path_len];
+                path_len++;
+            }
+            if (!(path_len == 1 && path[0] == '/')) {
+                new_path[path_len++] = '/';
+            }
+            for (int i = 0; entry_name[i] != '\0'; i++) {
+                new_path[path_len++] = entry_name[i];
+            }
+            new_path[path_len] = '\0';
+
+            // Bandingkan nama
+            if (strcmp(entry_name, search_name) == 0) {
+                (*current_row)++;
+                print_string(new_path, *current_row, 0);
+                *found = 1;
+                return;
+            }
+
+            // Jika direktori, lanjut rekursif
             struct EXT2Inode child_inode;
             syscall(21, (uint32_t)&child_inode, entry->inode, 0);
             if ((child_inode.i_mode & 0x4000) == 0x4000) {
-                uint32_t found = find_file_folder_recursive(entry->inode, name);
-                if (found != 0) return found;
+                find_recursive(entry->inode, search_name, new_path, found, current_row);
             }
+
+            offset += entry->rec_len;
         }
-        offset += entry->rec_len;
     }
-    return 0;
 }
 
-// Wrapper: search from root (inode 2)
-uint32_t find_file_folder(const char *name) {
-    return find_file_folder_recursive(2, name);
+
+void find_command(const char* filename, int* current_row) {
+    if (filename == NULL || filename[0] == '\0') {
+        (*current_row)++;
+        print_string("find: usage: find <filename>", *current_row, 0);
+        return;
+    }
+    (*current_row)++;
+    print_string("Searching for:", *current_row, 0);
+    (*current_row)++;
+    print_string(filename, *current_row, 0);
+
+    char root_path[2] = {'/', '\0'};
+    int found = 0;
+    find_recursive(2, filename, root_path, &found, current_row);
+
+    if (!found) {
+        (*current_row)++;
+        print_string("Not found", *current_row, 0);
+
+    }
+    (*current_row)++;
+    // print_string("Search complete", *current_row, 0);
 }
 
 int main(void)
@@ -246,16 +255,8 @@ int main(void)
                 // find command: find <name>
                 if (buffer[0] == 'f' && buffer[1] == 'i' && buffer[2] == 'n' && buffer[3] == 'd' && buffer[4] == ' ') {
                     char *name = buffer + 5;
-                    if (name[0] != '\0') {
-                        uint32_t inode = find_file_folder(name);
-                        if (inode != 0) {
-                            print_find_result(name, inode, 1, ++current_row);
-                        } else {
-                            print_find_result(name, 0, 0, ++current_row);
-                        }
-                        current_row++;
-                        break;
-                    }
+                    find_command(name, &current_row);
+                    break;
                 }
                 if (!exit_shell) {
                     // process_command(buffer, &current_row);
