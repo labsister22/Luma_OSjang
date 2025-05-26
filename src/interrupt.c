@@ -203,6 +203,14 @@ void syscall(struct InterruptFrame frame)
     break;
     
   }
+  case 23: // SYS_READ_BLOCK
+  {
+    uint8_t* buffer = (uint8_t*) frame.cpu.general.ebx;
+    uint32_t block_num = frame.cpu.general.ecx;
+    uint32_t count = frame.cpu.general.edx;
+    read_blocks(buffer, block_num, count); // Pastikan fungsi ini ada
+    break;
+  }
       
   // case 10: // SYS_GET_CURSOR - Get cursor position (new)
   //   // You'll need to implement get_cursor functions in framebuffer

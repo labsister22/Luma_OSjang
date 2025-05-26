@@ -91,59 +91,78 @@ void find_recursive(uint32_t curr_inode, const char* search_name, char* path, in
     struct EXT2Inode dir_inode;
     syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
 
-    for (int blk = 0; blk < 12; blk++) {
-        if (dir_inode.i_block[blk] == 0) continue;
+    if (dir_inode.i_size == 0) return;
+
+    for (int blk = 0; blk < 12 && dir_inode.i_block[blk] != 0; blk++) {
         uint8_t buf[512];
         syscall(23, (uint32_t)buf, dir_inode.i_block[blk], 1);
 
         uint32_t offset = 0;
-        while (offset + sizeof(struct EXT2DirectoryEntry) <= 512 && !(*found)) {
+        while (offset < 512 && !(*found)) {
             struct EXT2DirectoryEntry* entry = (struct EXT2DirectoryEntry*)(buf + offset);
 
-            if (entry->rec_len < 8 || entry->rec_len + offset > 512) break;
+            // Validasi entry
+            if (entry->rec_len == 0 || entry->rec_len < 8) break;
+            if (offset + entry->rec_len > 512) break;
             if (entry->inode == 0 || entry->name_len == 0 || entry->name_len > 255) {
                 offset += entry->rec_len;
                 continue;
             }
 
-            // Ambil nama dan pastikan null-terminated
+            // Ambil nama entry
             char entry_name[256];
-            for (int i = 0; i < entry->name_len && i < 255; i++) {
-                entry_name[i] = ((char*)(entry + 1))[i];
+            char* name_ptr = (char*)(entry + 1);
+            int name_len = entry->name_len;
+            if (name_len > 255) name_len = 255;
+            
+            for (int i = 0; i < name_len; i++) {
+                entry_name[i] = name_ptr[i];
             }
-            entry_name[entry->name_len] = '\0';
+            entry_name[name_len] = '\0';
 
             // Skip . dan ..
-            if ((entry->name_len == 1 && entry_name[0] == '.' && entry_name[1] == '\0') ||
-                (entry->name_len == 2 && entry_name[0] == '.' && entry_name[1] == '.' && entry_name[2] == '\0')) {
+            if ((name_len == 1 && entry_name[0] == '.') ||
+                (name_len == 2 && entry_name[0] == '.' && entry_name[1] == '.')) {
                 offset += entry->rec_len;
                 continue;
             }
 
-            // Bangun path baru
+            // Bangun path lengkap
             char new_path[512];
             int path_len = 0;
-            while (path[path_len] != '\0') {
+            
+            while (path[path_len] != '\0' && path_len < 500) {
                 new_path[path_len] = path[path_len];
                 path_len++;
             }
+            
             if (!(path_len == 1 && path[0] == '/')) {
                 new_path[path_len++] = '/';
             }
-            for (int i = 0; entry_name[i] != '\0'; i++) {
+            
+            for (int i = 0; i < name_len && path_len < 500; i++) {
                 new_path[path_len++] = entry_name[i];
             }
             new_path[path_len] = '\0';
 
             // Bandingkan nama
-            if (strcmp(entry_name, search_name) == 0) {
+            int search_len = 0;
+            while (search_name[search_len] != '\0') search_len++;
+            
+            int match = (search_len == name_len);
+            for (int i = 0; match && i < search_len; i++) {
+                if (search_name[i] != entry_name[i]) match = 0;
+            }
+
+            if (match) {
                 (*current_row)++;
-                print_string(new_path, *current_row, 0);
+                print_string("FOUND: ", *current_row, 0);
+                print_string(new_path, *current_row, 7);
                 *found = 1;
                 return;
             }
 
-            // Jika direktori, lanjut rekursif
+            // Rekursi jika direktori
             struct EXT2Inode child_inode;
             syscall(21, (uint32_t)&child_inode, entry->inode, 0);
             if ((child_inode.i_mode & 0x4000) == 0x4000) {
@@ -178,6 +197,57 @@ void find_command(const char* filename, int* current_row) {
     }
     (*current_row)++;
     // print_string("Search complete", *current_row, 0);
+}
+
+void ls_command(int* current_row) {
+    (*current_row)++;
+    print_string("Files in root:", *current_row, 0);
+    
+    struct EXT2Inode root_inode;
+    syscall(21, (uint32_t)&root_inode, 2, 0);
+    
+    if (root_inode.i_size == 0) {
+        (*current_row)++;
+        print_string("Root directory is empty", *current_row, 0);
+        return;
+    }
+    
+    for (int blk = 0; blk < 12 && root_inode.i_block[blk] != 0; blk++) {
+        uint8_t buf[512];
+        syscall(23, (uint32_t)buf, root_inode.i_block[blk], 1);
+        
+        (*current_row)++;
+        print_string("Block ", *current_row, 0);
+        char blk_str[10];
+        itoa(blk, blk_str);
+        print_string(blk_str, *current_row, 6);
+        print_string(":", *current_row, 7);
+        
+        uint32_t offset = 0;
+        while (offset < 512) {
+            struct EXT2DirectoryEntry* entry = (struct EXT2DirectoryEntry*)(buf + offset);
+            
+            if (entry->rec_len == 0 || entry->rec_len < 8) break;
+            if (offset + entry->rec_len > 512) break;
+            if (entry->inode == 0 || entry->name_len == 0) {
+                offset += entry->rec_len;
+                continue;
+            }
+            
+            char entry_name[256];
+            char* name_ptr = (char*)(entry + 1);
+            for (int i = 0; i < entry->name_len && i < 255; i++) {
+                entry_name[i] = name_ptr[i];
+            }
+            entry_name[entry->name_len] = '\0';
+            
+            (*current_row)++;
+            print_string("  ", *current_row, 0);
+            print_string(entry_name, *current_row, 2);
+            
+            offset += entry->rec_len;
+        }
+    }
 }
 
 int main(void)
@@ -250,6 +320,12 @@ int main(void)
                     current_row++;
                     print_string("Clock running...", current_row, 0);
                     current_row++;
+                    break;
+                }
+
+                // Di dalam main loop, setelah find command:
+                if (buffer[0] == 'l' && buffer[1] == 's' && buffer[2] == '\0') {
+                    ls_command(&current_row);
                     break;
                 }
                 // find command: find <name>
