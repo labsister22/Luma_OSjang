@@ -70,3 +70,20 @@ int strncmp(const char *s1, const char *s2, size_t n) {
     }
     return n ? *(unsigned char *)s1 - *(unsigned char *)s2 : 0;
 }
+char *strcat(char *dest, const char *src) {
+    char *original_dest = dest;
+    while (*dest != '\0') {
+        dest++;
+    }
+    while ((*dest++ = *src++) != '\0');
+    return original_dest;
+}
+char *strcpy(char *dest, const char *src) {
+
+    char *original_dest = dest;
+
+    while ((*dest++ = *src++) != '\0');
+
+    return original_dest;
+
+}

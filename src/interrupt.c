@@ -195,12 +195,6 @@ void syscall(struct InterruptFrame frame)
           out->second = t.second;
       }
       break;
-  // case 10: // SYS_GET_CURSOR - Get cursor position (new)
-  //   // You'll need to implement get_cursor functions in framebuffer
-  //   // For now, just return 0,0
-  //   *((uint8_t *)frame.cpu.general.ebx) = 0; // col
-  //   *((uint8_t *)frame.cpu.general.ecx) = 0; // row
-    // break;
 
   default:
     // Unknown system call
