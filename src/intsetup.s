@@ -163,3 +163,7 @@ isr_stub_table:
     dd interrupt_handler_%+i
     %assign i i+1 
     %endrep
+
+global keyboard_isr_setup
+keyboard_isr_setup:
+    jmp interrupt_handler_33

@@ -96,7 +96,7 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         if (arg1) {
             handle_cd(arg1, *current_row_ptr);
         } else {
-            print_string("cd: missing argument", *current_row_ptr, 0);
+            print_string("cd: missing argument", *current_row_ptr+1, 0);
         }
     } else if (strcmp(command_name, "ls") == 0) {
         handle_ls(*current_row_ptr);
@@ -104,31 +104,31 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         if (arg1) {
             handle_mkdir(arg1, *current_row_ptr);
         } else {
-            print_string("mkdir: missing argument", *current_row_ptr, 0);
+            print_string("mkdir: missing argument", *current_row_ptr+1, 0);
         }
     } else if (strcmp(command_name, "cat") == 0) {
         if (arg1) {
             handle_cat(arg1, *current_row_ptr);
         } else {
-            print_string("cat: missing argument", *current_row_ptr, 0);
+            print_string("cat: missing argument", *current_row_ptr+1, 0);
         }
     } else if (strcmp(command_name, "cp") == 0) {
         // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("cp: requires two arguments, not supported with current string functions.", *current_row_ptr, 0);
+        print_string("cp: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
     } else if (strcmp(command_name, "rm") == 0) {
         if (arg1) {
             handle_rm(arg1, *current_row_ptr);
         } else {
-            print_string("rm: missing argument", *current_row_ptr, 0);
+            print_string("rm: missing argument", *current_row_ptr+1, 0);
         }
     } else if (strcmp(command_name, "mv") == 0) {
         // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr, 0);
+        print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
     } else if (strcmp(command_name, "find") == 0) {
         if (arg1) {
             handle_find(arg1, *current_row_ptr);
         } else {
-            print_string("find: missing argument", *current_row_ptr, 0);
+            print_string("find: missing argument", *current_row_ptr+1, 0);
         }
     } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
         print_string("Goodbye!", *current_row_ptr, 0);
@@ -149,53 +149,49 @@ void process_command(char* command_buffer, int* current_row_ptr) {
 
 int main(void)
 {
+    // syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
+    // return 0;
     char buffer[COMMAND_BUFFER_SIZE];
     int current_row = 0;
     int buffer_pos = 0;
     int cursor_col = 0;
     bool exit_shell = false;
     bool clock_enabled = false;
-
     syscall(7, 0, 0, 0); // Activate keyboard
     clear_screen();
+    // print_string("Welcome-to-LumaOS-CLI\n", 0, 0);
 
     char last_time[9] = "";
-
-    print_string("LumaOS Shell v1.0", 0, 0);
-    current_row = 1;
-
     while (!exit_shell) {
+        // Polling jam dan input secara multitasking
+        int input_ready = 0;
         char c = 0;
         char time_str[9];
-
+        get_time_string(time_str);
         if (clock_enabled) {
-            get_time_string(time_str);
             if (strcmp(time_str, last_time) != 0) {
                 print_string(time_str, 24, 70);
-                strcpy(last_time, time_str); // Use allowed strcpy
+                for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
             }
         }
 
-        char prompt[MAX_PATH_LENGTH + 15];
-        strcpy(prompt, "luma@os:"); // Use allowed strcpy
-        strcat(prompt, current_working_directory); // Use allowed strcat
-        strcat(prompt, "$ "); // Use allowed strcat
-        print_string(prompt, current_row, 0);
-        cursor_col = (int)strlen(prompt);
+        char prompt[MAX_PATH_LENGTH+15];
+        print_string("luma@os:~$ ", current_row, 0);
+        strcat(prompt, current_working_directory);
+        cursor_col = 11;
         set_cursor(cursor_col, current_row);
-
         buffer_pos = 0;
         for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) buffer[i] = '\0';
-
-        while (1) {
+        while (!input_ready) {
+            // Update jam setiap polling
             if (clock_enabled) {
                 get_time_string(time_str);
                 if (strcmp(time_str, last_time) != 0) {
                     print_string(time_str, 24, 70);
-                    strcpy(last_time, time_str); // Use allowed strcpy
+                    for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
                 }
             }
-
+            // Cek input keyboard (non-blocking polling)
             syscall(4, (uint32_t)&c, 0, 0);
             if (c != 0) {
                 input_ready = 1;
@@ -228,7 +224,7 @@ int main(void)
                     break;
                 }
                 if (!exit_shell) {
-                    // process_command(buffer, &current_row);
+                    process_command(buffer, &current_row);
                 }
                 current_row++;
                 break;
@@ -237,49 +233,26 @@ int main(void)
                     buffer_pos--;
                     cursor_col--;
                     buffer[buffer_pos] = '\0';
-                    current_row++;
-
-                    // Special handling for "exit" and "clock" outside process_command,
-                    // as parsing general arguments is now limited.
-                    if (strcmp(buffer, "exit") == 0) {
-                        print_string("Goodbye!", current_row, 0);
-                        exit_shell = true;
-                        break;
-                    } else if (strcmp(buffer, "clock") == 0) {
-                        print_string("Clock running...", current_row, 0);
-                        clock_enabled = true;
-                        current_row++;
-                        break;
-                    } else {
-                        // Pass the buffer to process_command, which will try to parse one arg
-                        process_command(buffer, &current_row);
-                    }
-                    break;
-                } else if (c == '\b' || c == 127) {
-                    if (buffer_pos > 0 && cursor_col > (int)strlen(prompt)) {
-                        buffer_pos--;
-                        cursor_col--;
-                        buffer[buffer_pos] = '\0';
-                        print_char(' ', current_row, cursor_col);
-                        set_cursor(cursor_col, current_row);
-                    }
-                } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) {
-                    buffer[buffer_pos] = c;
-                    buffer_pos++;
-                    print_char(c, current_row, cursor_col);
-                    cursor_col++;
+                    print_char(' ', current_row, cursor_col);
                     set_cursor(cursor_col, current_row);
-                    if (cursor_col >= 80) {
-                        current_row++;
-                        cursor_col = 0;
-                        set_cursor(cursor_col, current_row);
-                    }
                 }
-                c = 0;
+            } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) {
+                buffer[buffer_pos] = c;
+                buffer_pos++;
+                print_char(c, current_row, cursor_col);
+                cursor_col++;
+                set_cursor(cursor_col, current_row);
+                if (cursor_col >= 80) {
+                    current_row++;
+                    cursor_col = 0;
+                    set_cursor(cursor_col, current_row);
+                }
             }
+            // Ambil input berikutnya (polling)
+            c = 0;
+            syscall(4, (uint32_t)&c, 0, 0);
             for (volatile int d = 0; d < 10000; d++);
         }
-
         if (current_row >= 24) {
             clear_screen();
             current_row = 2;
