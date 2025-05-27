@@ -7,6 +7,7 @@
         "framebuffer.h": "c",
         "idt.h": "c",
         "test_ext2.h": "c",
-        "interrupt.h": "c"
+        "interrupt.h": "c",
+        "string.h": "c"
     },
 }
