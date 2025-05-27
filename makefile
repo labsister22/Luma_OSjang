@@ -33,9 +33,7 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/ext2.o \
        $(OUTPUT_FOLDER)/test_ext2.o\
 	   $(OUTPUT_FOLDER)/cmos.o \
-       $(OUTPUT_FOLDER)/paging.o \
-	   $(OUTPUT_FOLDER)/builtin_commands.o
-
+       $(OUTPUT_FOLDER)/paging.o 
 # Run QEMU
 run: all
 	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
@@ -53,7 +51,7 @@ build: iso disk insert-shell inserter user-shell
 clean:
 	rm -rf $(OBJS) $(OUTPUT_FOLDER)/kernel $(OUTPUT_FOLDER)/$(ISO_NAME).iso \
         $(OUTPUT_FOLDER)/iso $(OUTPUT_FOLDER)/storage.bin  $(OUTPUT_FOLDER)/shell \
-        $(OUTPUT_FOLDER)/shell_elf $(OUTPUT_FOLDER)/inserter 
+        $(OUTPUT_FOLDER)/shell_elf $(OUTPUT_FOLDER)/inserter *.o
 
 # Disk
 .PHONY: disk
@@ -77,13 +75,13 @@ inserter:
 user-shell:
 	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/crt0.s -o crt0.o
 	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/user-shell.c -o user-shell.o
+	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/builtin_commands.c -o builtin_commands.o
 	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/string.c -o string.o
-	@$(CC)	$(CFLAGS) -fno-pie $(SOURCE_FOLDER)/builtin_commands.c -o builtin_commands.o
 	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=binary \
-		crt0.o user-shell.o string.o builtin_commands.o -o $(OUTPUT_FOLDER)/shell
+		crt0.o user-shell.o builtin_commands.o string.o -o $(OUTPUT_FOLDER)/shell
 	@echo Linking object shell object files and generate flat binary...
 	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=elf32-i386 \
-		crt0.o user-shell.o string.o builtin_commands.o -o $(OUTPUT_FOLDER)/shell_elf
+		crt0.o user-shell.o builtin_commands.o string.o -o $(OUTPUT_FOLDER)/shell_elf
 	@echo Linking object shell object files and generate ELF32 for debugging...
 	@size --target=binary $(OUTPUT_FOLDER)/shell
 	@rm -f *.o

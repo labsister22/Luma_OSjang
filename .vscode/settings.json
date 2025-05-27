@@ -8,6 +8,11 @@
         "idt.h": "c",
         "test_ext2.h": "c",
         "interrupt.h": "c",
+<<<<<<< HEAD
+=======
+        "builtin_commands.h": "c",
+        "stdint.h": "c",
+>>>>>>> 694c37a113d8771451ae02b12ae317e04e42ecf7
         "string.h": "c"
     },
 }

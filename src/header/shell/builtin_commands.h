@@ -1,42 +1,25 @@
-// header/shell/builtin_commands.h
+// src/header/builtin_commands.h
 
-#ifndef _BUILTIN_COMMANDS_H
-#define _BUILTIN_COMMANDS_H
+#ifndef BUILTIN_COMMANDS_H
+#define BUILTIN_COMMANDS_H
 
 #include <stdint.h>
-#include <stdbool.h>
+#include "header/stdlib/string.h"
 
-// Command status codes
-#define CMD_SUCCESS 0
-#define CMD_ERROR_INVALID_ARGS -1
-#define CMD_ERROR_FILE_NOT_FOUND -2
-#define CMD_ERROR_PERMISSION_DENIED -3
-#define CMD_ERROR_IO_ERROR -4
-#define CMD_ERROR_OUT_OF_MEMORY -5
-#define MAX_PATH_LENGTH 256
-#define MAX_FILENAME_LENGTH 255
-#define BUFFER_SIZE 4096
-// Utility functions
-void print_error(const char* message);
-void print_success(const char* message);
-bool file_exists(const char* path);
-bool is_directory_path(const char* path);
+extern char current_working_directory[256]; // Assuming MAX_PATH_LENGTH from user-shell.c
+extern void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx);
+// Function prototypes for built-in commands
+void handle_cd(const char* path, int current_row);
+void handle_ls(int current_row);
+void handle_mkdir(const char* name, int current_row);
+void handle_cat(const char* filename, int current_row);
+void handle_cp(const char* source, const char* destination, int current_row);
+void handle_rm(const char* path, int current_row);
+void handle_mv(const char* source, const char* destination, int current_row);
+void handle_find(const char* name, int current_row);
 
-// Built-in command function prototypes
-int8_t cmd_cp(char* args[], int argc, int* current_row);
-int8_t cmd_mv(char* args[], int argc, int* current_row);
-int8_t cmd_rm(char* args[], int argc, int* current_row);
-int8_t cmd_mkdir(char* args[], int argc, int* current_row);
-int8_t cmd_rmdir(char* args[], int argc, int* current_row);
-int8_t cmd_ls(char* args[], int argc, int* current_row);
-int8_t cmd_cat(char* args[], int argc, int* current_row);
-int8_t cmd_touch(char* args[], int argc, int* current_row);
-int8_t cmd_pwd(char* args[], int argc, int* current_row);
-int8_t cmd_cd(char* args[], int argc, int* current_row);
-int8_t cmd_help(char* args[], int argc, int* current_row);
+// Utility functions (from user-shell.c / shared)
+void print_string(const char* str, int row, int col);
+void print_char(char c, int row, int col);
 
-// Command parser
-int8_t execute_command(const char* cmd_line, int* current_row);
-int parse_command(const char* cmd_line, char* cmd, char* args[], int* argc);
-
-#endif
+#endif // BUILTIN_COMMANDS_H
