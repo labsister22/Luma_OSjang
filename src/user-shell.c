@@ -198,7 +198,44 @@ int main(void)
 
             syscall(4, (uint32_t)&c, 0, 0);
             if (c != 0) {
-                if (c == '\n' || c == '\r') {
+                input_ready = 1;
+                break;
+            }
+            // Delay polling
+            for (volatile int d = 0; d < 100000; d++);
+        }
+        // Proses input seperti biasa
+        while (1) {
+            if (clock_enabled) {
+                get_time_string(time_str);
+                if (strcmp(time_str, last_time) != 0) {
+                    print_string(time_str, 24, 70);
+                    for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
+                }
+            }
+            if (c == '\n' || c == '\r') {
+                buffer[buffer_pos] = '\0';
+                if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'i' && buffer[3] == 't' && buffer[4] == '\0') {
+                    current_row++;
+                    print_string("Goodbye!", current_row, 0);
+                    exit_shell = true;
+                }
+                if (buffer[0] == 'c' && buffer[1] == 'l' && buffer[2] == 'o' && buffer[3] == 'c' && buffer[4] == 'k' && buffer[5] == '\0') {
+                    clock_enabled = true;
+                    current_row++;
+                    print_string("Clock running...", current_row, 0);
+                    current_row++;
+                    break;
+                }
+                if (!exit_shell) {
+                    // process_command(buffer, &current_row);
+                }
+                current_row++;
+                break;
+            } else if (c == '\b' || c == 127) {
+                if (buffer_pos > 0 && cursor_col > 11) {
+                    buffer_pos--;
+                    cursor_col--;
                     buffer[buffer_pos] = '\0';
                     current_row++;
 

@@ -17,7 +17,19 @@ struct EXT2BlockGroupDescriptorTable bgd_table;
 
 uint32_t ceil_div(uint32_t a, uint32_t b)
 {
-  return (a + b - 1) / b;
+  if (b == 0)
+  {
+    return 0;
+  }
+
+  uint32_t result = a / b;
+
+  if (a % b != 0)
+  {
+    result++;
+  }
+
+  return result;
 }
 
 bool is_inode_used(uint32_t inode)
@@ -577,7 +589,7 @@ void create_ext2(void)
   superblock.s_wtime = 0;
   superblock.s_mnt_count = 0;
   superblock.s_max_mnt_count = 20;
-  superblock.s_state = 1; // Clean
+  superblock.s_state = 1;  // Clean
   superblock.s_errors = 1; // Continue on errors
   superblock.s_minor_rev_level = 0;
   superblock.s_lastcheck = 0;
@@ -608,7 +620,7 @@ void create_ext2(void)
   // Inisialisasi block dan inode bitmap
   uint8_t block_bitmap[BLOCK_SIZE] = {0};
   uint8_t inode_bitmap[BLOCK_SIZE] = {0};
-  
+
   // Mark reserved blocks as used (boot sector, superblock, BGD table, bitmaps, inode table)
   // Blocks 0-8 are reserved for: boot(0), super(1), bgd(2), block_bitmap(3), inode_bitmap(4), inode_table(5-8)
   for (uint32_t i = 0; i < 9; i++)
@@ -617,7 +629,7 @@ void create_ext2(void)
     uint32_t bit_offset = i % 8;
     block_bitmap[byte_offset] |= (1 << bit_offset);
   }
-  
+
   for (uint32_t i = 0; i < GROUPS_COUNT; i++)
   {
     write_blocks(block_bitmap, bgd_table.table[i].bg_block_bitmap, 1);
@@ -843,18 +855,22 @@ int8_t read(struct EXT2DriverRequest request)
   read_blocks(buf, parent_inode.i_block[0], 1);
   uint32_t offset = 0;
   uint32_t found_inode = 0;
-  while (offset < BLOCK_SIZE) {
+  while (offset < BLOCK_SIZE)
+  {
     struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(buf + offset);
-    if (entry->inode != 0) {
+    if (entry->inode != 0)
+    {
       char *entry_name = (char *)(entry + 1);
-      if (strlen(request.name) == entry->name_len && memcmp(entry_name, request.name, entry->name_len) == 0) {
+      if (strlen(request.name) == entry->name_len && memcmp(entry_name, request.name, entry->name_len) == 0)
+      {
         found_inode = entry->inode;
         break;
       }
     }
     offset += entry->rec_len;
   }
-  if (found_inode == 0) return 3;
+  if (found_inode == 0)
+    return 3;
 
   // Baca inode file
   group = inode_to_bgd(found_inode);
@@ -863,17 +879,21 @@ int8_t read(struct EXT2DriverRequest request)
   struct EXT2Inode file_inode = inode_table.table[local_inode];
 
   // Jika direktori, return 1
-  if ((file_inode.i_mode & EXT2_S_IFDIR) == EXT2_S_IFDIR) return 1;
-  if (file_inode.i_size > request.buffer_size) return 2;
+  if ((file_inode.i_mode & EXT2_S_IFDIR) == EXT2_S_IFDIR)
+    return 1;
+  if (file_inode.i_size > request.buffer_size)
+    return 2;
 
   // Baca data file
   uint32_t bytes_read = 0;
   uint32_t block_idx = 0;
-  while (bytes_read < file_inode.i_size && block_idx < file_inode.i_blocks) {
+  while (bytes_read < file_inode.i_size && block_idx < file_inode.i_blocks)
+  {
     uint8_t block_buf[BLOCK_SIZE];
     read_blocks(block_buf, file_inode.i_block[block_idx], 1);
     uint32_t to_read = file_inode.i_size - bytes_read;
-    if (to_read > BLOCK_SIZE) to_read = BLOCK_SIZE;
+    if (to_read > BLOCK_SIZE)
+      to_read = BLOCK_SIZE;
     memcpy((uint8_t *)request.buf + bytes_read, block_buf, to_read);
     bytes_read += to_read;
     block_idx++;
