@@ -8,6 +8,8 @@
         "idt.h": "c",
         "test_ext2.h": "c",
         "interrupt.h": "c",
+        "builtin_commands.h": "c",
+        "stdint.h": "c",
         "paging.h": "c",
         "process.h": "c",
         "string.h": "c"
