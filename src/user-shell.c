@@ -139,8 +139,8 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         // It's technically unreachable now due to the main loop's check.
     }
     else {
-        print_string("Unknown command: ", *current_row_ptr, 0);
-        print_string(command_name, *current_row_ptr, (int)strlen("Unknown command: "));
+        print_string("Unknown command: ", *current_row_ptr+1, 0);
+        print_string(command_name, *current_row_ptr+1, (int)strlen("Unknown command: "));
     }
 
     *current_row_ptr += 1;
