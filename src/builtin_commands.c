@@ -99,12 +99,8 @@ void resolve_path_display(char* resolved_path, const char* path) {
 // --- Built-in Command Implementations (Stubs for unsupported FS operations) ---
 
 void handle_cd(const char* path, int current_row) {
-    char new_display_path[256];
-    resolve_path_display(new_display_path, path);
-
-    strcpy(current_working_directory, new_display_path); // Use allowed strcpy
-    print_string("cd: Changed shell display path to ", current_row + 1, 0);
-    print_string(new_display_path, current_row + 1, (int)strlen("cd: Changed shell display path to "));
+    print_string("cat: Not implemented. No suitable kernel syscall for file reading.", current_row + 1, 0);
+    (void)path;
     (void)current_row;
 }
 
