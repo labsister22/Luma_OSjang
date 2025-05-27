@@ -58,6 +58,19 @@
 #define IRQ_PRIMARY_ATA 14
 #define IRQ_SECOND_ATA 15
 
+#define PIT_MAX_FREQUENCY 1193182
+#define PIT_TIMER_FREQUENCY 1000
+#define PIT_TIMER_COUNTER (PIT_MAX_FREQUENCY / PIT_TIMER_FREQUENCY)
+
+#define PIT_COMMAND_REGISTER_PIO 0x43
+#define PIT_COMMAND_VALUE_BINARY_MODE 0b0
+#define PIT_COMMAND_VALUE_OPR_SQUARE_WAVE (0b011 << 1)
+#define PIT_COMMAND_VALUE_ACC_LOHIBYTE (0b11 << 4)
+#define PIT_COMMAND_VALUE_CHANNEL (0b00 << 6)
+#define PIT_COMMAND_VALUE (PIT_COMMAND_VALUE_BINARY_MODE | PIT_COMMAND_VALUE_OPR_SQUARE_WAVE | PIT_COMMAND_VALUE_ACC_LOHIBYTE | PIT_COMMAND_VALUE_CHANNEL)
+
+#define PIT_CHANNEL_0_DATA_PIO 0x40
+
 /**
  * CPURegister, store CPU registers values.
  *
@@ -75,8 +88,8 @@ struct CPURegister
   } __attribute__((packed)) index;
   struct
   {
-    uint32_t esp;
     uint32_t ebp;
+    uint32_t esp;
   } __attribute__((packed)) stack;
   struct
   {
@@ -160,25 +173,24 @@ void default_interrupt_handler(struct InterruptFrame frame);
 void activate_keyboard_interrupt(void);
 void isr_handler(struct InterruptFrame frame); // Tambahkan ini
 
-
 extern struct TSSEntry _interrupt_tss_entry;
 
 /**
  * TSSEntry, Task State Segment. Used when jumping back to ring 0 / kernel
  */
-struct TSSEntry {
-    uint32_t prev_tss; // Previous TSS 
-    uint32_t esp0;     // Stack pointer to load when changing to kernel mode
-    uint32_t ss0;      // Stack segment to load when changing to kernel mode
-    // Unused variables
-    uint32_t unused_register[23];
+struct TSSEntry
+{
+  uint32_t prev_tss; // Previous TSS
+  uint32_t esp0;     // Stack pointer to load when changing to kernel mode
+  uint32_t ss0;      // Stack segment to load when changing to kernel mode
+  // Unused variables
+  uint32_t unused_register[23];
 } __attribute__((packed));
 
 // Set kernel stack in TSS
 void set_tss_kernel_current_stack(void);
 void syscall(struct InterruptFrame frame);
 
-extern struct TSSEntry _interrupt_tss_entry;
-
+void activate_timer_interrupt(void);
 
 #endif

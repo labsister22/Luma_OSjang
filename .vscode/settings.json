@@ -12,7 +12,12 @@
 =======
         "builtin_commands.h": "c",
         "stdint.h": "c",
+<<<<<<< HEAD
 >>>>>>> 694c37a113d8771451ae02b12ae317e04e42ecf7
+=======
+        "paging.h": "c",
+        "process.h": "c",
+>>>>>>> 1761699cf1254e4c161026009b578d9894b4299a
         "string.h": "c"
     },
 }

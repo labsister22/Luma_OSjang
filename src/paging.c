@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include "header/memory/paging.h"
 #include "header/text/framebuffer.h"
+#include "header/stdlib/string.h"
+#include "header/process/process.h"
 
 __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_directory = {
     .table = {
@@ -87,7 +89,7 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
 
   // Don't allow allocation of kernel reserved pages (0x0-0x3FF and 0x300-0x301)
-  if (page_index >=768)
+  if (page_index >= 768)
   {
     return false; // Reserved for kernel
   }
@@ -135,7 +137,7 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
   page_dir->table[page_index].pat = 0;
   page_dir->table[page_index].reserved_1 = 0;
   page_dir->table[page_index].reserved_2 = 0;
-  page_dir->table[page_index].higher_address = (frame_index>>10) &0x3FF; // Keep as 0 for 32-bit systems
+  page_dir->table[page_index].higher_address = (frame_index >> 10) & 0x3FF; // Keep as 0 for 32-bit systems
 
   flush_single_tlb(virtual_addr);
   return true;
@@ -151,7 +153,8 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
   // FIX: Hanya tolak kernel space (>= 3GB), IZINKAN page 0 untuk user
   // Page 0 = alamat 0x00000000-0x003FFFFF (4MB pertama)
   // Page 0x300 = alamat 0xC0000000+ (kernel space)
-  if (page_index >= 768) { // 768 * 4MB = 3GB (kernel space start)
+  if (page_index >= 768)
+  {               // 768 * 4MB = 3GB (kernel space start)
     return false; // Tolak kernel space
   }
 
@@ -162,11 +165,12 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
   }
 
   // FIX: Get frame index from page directory entry
-  uint32_t frame_index = page_dir->table[page_index].lower_address | 
-                        (page_dir->table[page_index].higher_address << 10);
+  uint32_t frame_index = page_dir->table[page_index].lower_address |
+                         (page_dir->table[page_index].higher_address << 10);
 
   // Validate frame index
-  if (frame_index >= PAGE_FRAME_MAX_COUNT || frame_index == 0) {
+  if (frame_index >= PAGE_FRAME_MAX_COUNT || frame_index == 0)
+  {
     return false; // Invalid frame or reserved frame
   }
 
@@ -253,23 +257,150 @@ bool paging_is_page_allocated(struct PageDirectory *page_dir, void *virtual_addr
 }
 bool paging_map_user_page(struct PageDirectory *page_dir, void *virtual_addr, void *physical_addr)
 {
-    if (!page_dir) return false;
-    uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
-    if (page_index >= 768) return false;
+  if (!page_dir)
+    return false;
+  uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
+  if (page_index >= 768)
+    return false;
 
-    if (((uint32_t)physical_addr & 0x3FFFFF) != 0) return false;
-    // Set user flags
-    struct PageDirectoryEntryFlag flag = {
-        .present_bit = 1,
-        .write_bit = 1,
-        .user_bit = 1,
-        .write_through_bit = 0,
-        .cache_disable_bit = 0,
-        .accessed_bit = 0,
-        .dirty_bit = 0,
-        .use_pagesize_4_mb = 1
-    };
+  if (((uint32_t)physical_addr & 0x3FFFFF) != 0)
+    return false;
+  // Set user flags
+  struct PageDirectoryEntryFlag flag = {
+      .present_bit = 1,
+      .write_bit = 1,
+      .user_bit = 1,
+      .write_through_bit = 0,
+      .cache_disable_bit = 0,
+      .accessed_bit = 0,
+      .dirty_bit = 0,
+      .use_pagesize_4_mb = 1};
 
-    update_page_directory_entry(page_dir, physical_addr, virtual_addr, flag);
-    return true;
+  update_page_directory_entry(page_dir, physical_addr, virtual_addr, flag);
+  return true;
+}
+
+__attribute__((aligned(0x1000))) static struct PageDirectory page_directory_list[PAGING_DIRECTORY_TABLE_MAX_COUNT] = {0};
+
+static struct
+{
+  bool page_directory_used[PAGING_DIRECTORY_TABLE_MAX_COUNT];
+} page_directory_manager = {
+    .page_directory_used = {false},
+};
+
+struct PageDirectory *paging_create_new_page_directory(void)
+{
+  // Iterate through page_directory_list to find an unused page directory
+  for (int i = 0; i < PAGING_DIRECTORY_TABLE_MAX_COUNT; i++)
+  {
+    if (!page_directory_manager.page_directory_used[i])
+    {
+      // Mark this page directory as used
+      page_directory_manager.page_directory_used[i] = true;
+
+      // Get pointer to the page directory
+      struct PageDirectory *page_dir = &page_directory_list[i];
+
+      // Clear the entire page directory first
+      for (int j = 0; j < 1024; j++)
+      {
+        page_dir->table[j] = (struct PageDirectoryEntry){0};
+      }
+
+      // Create kernel higher half page directory entry
+      struct PageDirectoryEntryFlag kernel_flag = {
+          .present_bit = 1,
+          .write_bit = 1,
+          .user_bit = 0, // Kernel space
+          .write_through_bit = 0,
+          .cache_disable_bit = 0,
+          .accessed_bit = 0,
+          .dirty_bit = 0,
+          .use_pagesize_4_mb = 1};
+
+      // Set page_directory.table[0x300] with kernel page directory entry
+      // 0x300 = 768, which maps to 0xC0000000 (3GB) - kernel space
+      page_dir->table[0x300].flag = kernel_flag;
+      page_dir->table[0x300].lower_address = 0; // Physical address 0
+      page_dir->table[0x300].higher_address = 0;
+      page_dir->table[0x300].global_page = 0;
+      page_dir->table[0x300].pat = 0;
+      page_dir->table[0x300].reserved_1 = 0;
+      page_dir->table[0x300].reserved_2 = 0;
+
+      return page_dir;
+    }
+  }
+
+  // No available page directories
+  return NULL;
+}
+
+bool paging_free_page_directory(struct PageDirectory *page_dir)
+{
+  if (!page_dir)
+  {
+    return false;
+  }
+
+  // Iterate through page_directory_list to find the matching page directory
+  for (int i = 0; i < PAGING_DIRECTORY_TABLE_MAX_COUNT; i++)
+  {
+    if (&page_directory_list[i] == page_dir)
+    {
+      // Check if this page directory is actually in use
+      if (!page_directory_manager.page_directory_used[i])
+      {
+        return false; // Already free
+      }
+
+      // Mark the page directory as unused
+      page_directory_manager.page_directory_used[i] = false;
+
+      // Clear all page directory entries
+      for (int j = 0; j < 1024; j++)
+      {
+        // Before clearing, free any allocated user page frames
+        if (j < 768 && page_dir->table[j].flag.present_bit)
+        {
+          // This is a user page that's allocated
+          uint32_t frame_index = page_dir->table[j].lower_address |
+                                 (page_dir->table[j].higher_address << 10);
+
+          // Free the frame if it's valid and not the reserved frame 0
+          if (frame_index > 0 && frame_index < PAGE_FRAME_MAX_COUNT)
+          {
+            page_manager_state.page_frame_map[frame_index] = false;
+            page_manager_state.free_page_frame_count++;
+          }
+        }
+
+        // Clear the page directory entry
+        page_dir->table[j] = (struct PageDirectoryEntry){0};
+      }
+
+      return true;
+    }
+  }
+
+  // Page directory not found in our managed list
+  return false;
+}
+
+struct PageDirectory *paging_get_current_page_directory_addr(void)
+{
+  uint32_t current_page_directory_phys_addr;
+  __asm__ volatile("mov %%cr3, %0" : "=r"(current_page_directory_phys_addr) : /* <Empty> */);
+  uint32_t virtual_addr_page_dir = current_page_directory_phys_addr + KERNEL_VIRTUAL_ADDRESS_BASE;
+  return (struct PageDirectory *)virtual_addr_page_dir;
+}
+
+void paging_use_page_directory(struct PageDirectory *page_dir_virtual_addr)
+{
+  uint32_t physical_addr_page_dir = (uint32_t)page_dir_virtual_addr;
+  // Additional layer of check & mistake safety net
+  if ((uint32_t)page_dir_virtual_addr > KERNEL_VIRTUAL_ADDRESS_BASE)
+    physical_addr_page_dir -= KERNEL_VIRTUAL_ADDRESS_BASE;
+  __asm__ volatile("mov %0, %%cr3" : /* <Empty> */ : "r"(physical_addr_page_dir) : "memory");
 }
