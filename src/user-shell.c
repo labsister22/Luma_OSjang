@@ -16,7 +16,8 @@ struct Time {
     uint8_t minute;
     uint8_t second;
 };
-void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
+
+void user_syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
 {
     __asm__ volatile("mov %0, %%ebx" : : "r"(ebx));
     __asm__ volatile("mov %0, %%ecx" : : "r"(ecx));
@@ -24,25 +25,26 @@ void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
     __asm__ volatile("mov %0, %%eax" : : "r"(eax));
     __asm__ volatile("int $0x30");
 }
+
 void clear_screen() {
-    syscall(8, 0, 0, 0);
+    user_syscall(8, 0, 0, 0);
 }
 
 void set_cursor(int col, int row) {
-    syscall(9, col, row, 0);
+    user_syscall(9, col, row, 0);
 }
 
 char get_char() {
     char c = 0;
     do {
-        syscall(4, (uint32_t)&c, 0, 0);
+        user_syscall(4, (uint32_t)&c, 0, 0);
         for (volatile int i = 0; i < 100; i++);
     } while (c == 0);
     return c;
 }
 
 void get_time(struct Time* t) {
-    syscall(10, (uint32_t)t, 0, 0);
+    user_syscall(10, (uint32_t)t, 0, 0);
 }
 
 void get_time_string(char* buffer) {
@@ -58,6 +60,11 @@ void get_time_string(char* buffer) {
     buffer[7] = '0' + (t.second % 10);
     buffer[8] = '\0';
 }
+
+// Remove these functions - they're now defined in builtin_commands.c
+// int32_t create_process(struct EXT2DriverRequest request) { ... }
+// bool terminate_process(uint32_t pid) { ... }
+// void get_process_info(struct ProcessControlBlock* buffer, int* count) { ... }
 
 // Function to process commands
 void process_command(char* command_buffer, int* current_row_ptr) {
@@ -86,7 +93,6 @@ void process_command(char* command_buffer, int* current_row_ptr) {
             break;
         }
     }
-
 
     if (strlen(command_name) == 0) {
         return; // Empty command
@@ -130,6 +136,20 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         } else {
             print_string("find: missing argument", *current_row_ptr+1, 0);
         }
+    } else if (strcmp(command_name, "exec") == 0) {
+        if (arg1) {
+            handle_exec(arg1, *current_row_ptr);
+        } else {
+            print_string("exec: missing argument", *current_row_ptr+1, 0);
+        }
+    } else if (strcmp(command_name, "ps") == 0) {
+        handle_ps(*current_row_ptr);
+    } else if (strcmp(command_name, "kill") == 0) {
+        if (arg1) {
+            handle_kill(arg1, *current_row_ptr);
+        } else {
+            print_string("kill: missing argument", *current_row_ptr+1, 0);
+        }
     } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
         print_string("Goodbye!", *current_row_ptr, 0);
         // This will only be executed if 'exit' is the only thing typed.
@@ -146,10 +166,9 @@ void process_command(char* command_buffer, int* current_row_ptr) {
     *current_row_ptr += 1;
 }
 
-
 int main(void)
 {
-    // syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
+    // user_syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
     // return 0;
     char buffer[COMMAND_BUFFER_SIZE];
     int current_row = 0;
@@ -157,7 +176,7 @@ int main(void)
     int cursor_col = 0;
     bool exit_shell = false;
     bool clock_enabled = false;
-    syscall(7, 0, 0, 0); // Activate keyboard
+    user_syscall(7, 0, 0, 0); // Activate keyboard
     clear_screen();
     // print_string("Welcome-to-LumaOS-CLI\n", 0, 0);
 
@@ -192,7 +211,7 @@ int main(void)
                 }
             }
             // Cek input keyboard (non-blocking polling)
-            syscall(4, (uint32_t)&c, 0, 0);
+            user_syscall(4, (uint32_t)&c, 0, 0);
             if (c != 0) {
                 input_ready = 1;
                 break;
@@ -250,7 +269,7 @@ int main(void)
             }
             // Ambil input berikutnya (polling)
             c = 0;
-            syscall(4, (uint32_t)&c, 0, 0);
+            user_syscall(4, (uint32_t)&c, 0, 0);
             for (volatile int d = 0; d < 10000; d++);
         }
         if (current_row >= 24) {

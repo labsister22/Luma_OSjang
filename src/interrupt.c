@@ -6,6 +6,7 @@
 #include "header/filesystem/ext2.h"
 #include "header/text/framebuffer.h"
 #include "header/driver/cmos.h"
+#include "header/process/process.h"
 
 struct TSSEntry _interrupt_tss_entry = {
     .ss0 = GDT_KERNEL_DATA_SEGMENT_SELECTOR,
@@ -195,15 +196,40 @@ void syscall(struct InterruptFrame frame)
         frame.cpu.general.ecx,  // row
         frame.cpu.general.ebx); // col
     break;
+    
   case 10:
-      {
-          struct Time t = get_cmos_time();
-          struct Time* out = (struct Time*) frame.cpu.general.ebx;
-          out->hour = t.hour;
-          out->minute = t.minute;
-          out->second = t.second;
-      }
-      break;
+  {
+    struct Time t = get_cmos_time();
+    struct Time* out = (struct Time*) frame.cpu.general.ebx;
+    out->hour = t.hour;
+    out->minute = t.minute;
+    out->second = t.second;
+  }
+  break;
+
+  case 11: // SYS_CREATE_PROCESS - Create new user process
+  {
+    struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+    int32_t *result = (int32_t *)frame.cpu.general.ecx;
+    *result = process_create_user_process(*request);
+  }
+  break;
+
+  case 12: // SYS_TERMINATE_PROCESS - Terminate process by PID
+  {
+    uint32_t pid = frame.cpu.general.ebx;
+    bool *result = (bool *)frame.cpu.general.ecx;
+    *result = process_destroy(pid);
+  }
+  break;
+
+  case 13: // SYS_GET_PROCESS_INFO - Get process information
+  {
+    struct ProcessControlBlock *buffer = (struct ProcessControlBlock *)frame.cpu.general.ebx;
+    int *count = (int *)frame.cpu.general.ecx;
+    getActivePCB(buffer, count);
+  }
+  break;
 
   default:
     // Unknown system call
