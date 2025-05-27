@@ -34,9 +34,9 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/test_ext2.o\
 	   $(OUTPUT_FOLDER)/cmos.o \
        $(OUTPUT_FOLDER)/paging.o \
-			 $(OUTPUT_FOLDER)/process.o \
-			 $(OUTPUT_FOLDER)/scheduler.o \
-			 $(OUTPUT_FOLDER)/context-switch.o			  
+			$(OUTPUT_FOLDER)/process.o \
+			$(OUTPUT_FOLDER)/scheduler.o \
+			$(OUTPUT_FOLDER)/context-switch.o			  
 
 # Run QEMU
 run: all

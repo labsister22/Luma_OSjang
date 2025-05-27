@@ -126,6 +126,7 @@ int main(void)
             if (c == '\n' || c == '\r') {
                 buffer[buffer_pos] = '\0';
                 if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'i' && buffer[3] == 't' && buffer[4] == '\0') {
+                    current_row++;
                     print_string("Goodbye!", current_row, 0);
                     exit_shell = true;
                 }
