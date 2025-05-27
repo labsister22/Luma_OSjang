@@ -96,7 +96,7 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         if (arg1) {
             handle_cd(arg1, *current_row_ptr);
         } else {
-            print_string("cd: missing argument", *current_row_ptr + 1, 0);
+            print_string("cd: missing argument", *current_row_ptr, 0);
         }
     } else if (strcmp(command_name, "ls") == 0) {
         handle_ls(*current_row_ptr);
@@ -104,31 +104,31 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         if (arg1) {
             handle_mkdir(arg1, *current_row_ptr);
         } else {
-            print_string("mkdir: missing argument", *current_row_ptr + 1, 0);
+            print_string("mkdir: missing argument", *current_row_ptr, 0);
         }
     } else if (strcmp(command_name, "cat") == 0) {
         if (arg1) {
             handle_cat(arg1, *current_row_ptr);
         } else {
-            print_string("cat: missing argument", *current_row_ptr + 1, 0);
+            print_string("cat: missing argument", *current_row_ptr, 0);
         }
     } else if (strcmp(command_name, "cp") == 0) {
         // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("cp: requires two arguments, not supported with current string functions.", *current_row_ptr + 1, 0);
+        print_string("cp: requires two arguments, not supported with current string functions.", *current_row_ptr, 0);
     } else if (strcmp(command_name, "rm") == 0) {
         if (arg1) {
             handle_rm(arg1, *current_row_ptr);
         } else {
-            print_string("rm: missing argument", *current_row_ptr + 1, 0);
+            print_string("rm: missing argument", *current_row_ptr, 0);
         }
     } else if (strcmp(command_name, "mv") == 0) {
         // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr + 1, 0);
+        print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr, 0);
     } else if (strcmp(command_name, "find") == 0) {
         if (arg1) {
             handle_find(arg1, *current_row_ptr);
         } else {
-            print_string("find: missing argument", *current_row_ptr + 1, 0);
+            print_string("find: missing argument", *current_row_ptr, 0);
         }
     } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
         print_string("Goodbye!", *current_row_ptr, 0);
@@ -139,8 +139,8 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         // It's technically unreachable now due to the main loop's check.
     }
     else {
-        print_string("Unknown command: ", *current_row_ptr + 1, 0);
-        print_string(command_name, *current_row_ptr + 1, (int)strlen("Unknown command: "));
+        print_string("Unknown command: ", *current_row_ptr, 0);
+        print_string(command_name, *current_row_ptr, (int)strlen("Unknown command: "));
     }
 
     *current_row_ptr += 1;
