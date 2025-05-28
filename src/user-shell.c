@@ -4,9 +4,13 @@
 #include <stdbool.h>
 #include "header/stdlib/string.h" // Now strictly adhering to provided functions only
 #include "header/shell/builtin_commands.h"
+#include "header/driver/speaker.h"
 
 #define COMMAND_BUFFER_SIZE 128
 #define MAX_PATH_LENGTH 256
+
+#define BEEP_FREQUENCY 440  // Frekuensi untuk nada A4
+// #define BEEP_DURATION_LOOPS 500000 
 
 // Global current working directory
 char current_working_directory[MAX_PATH_LENGTH] = "/";
@@ -16,6 +20,22 @@ struct Time {
     uint8_t minute;
     uint8_t second;
 };
+
+int simple_atoi(const char* str) {
+    int res = 0;
+    int i = 0;
+    // Lewati spasi di awal jika ada
+    while (str[i] == ' ') {
+        i++;
+    }
+    // Proses digit
+    while (str[i] >= '0' && str[i] <= '9') {
+        res = res * 10 + (str[i] - '0');
+        i++;
+    }
+    return res;
+}
+
 void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
 {
     __asm__ volatile("mov %0, %%ebx" : : "r"(ebx));
@@ -130,6 +150,15 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         } else {
             print_string("find: missing argument", *current_row_ptr+1, 0);
         }
+    } else if (strcmp(command_name, "beep") == 0) { // Tambahkan perintah beep
+        print_string("Playing beep...", *current_row_ptr + 1, 0);
+        speaker_play(BEEP_FREQUENCY);
+        // Tambahkan delay sederhana
+        // for (volatile int d = 0; d < BEEP_DURATION_LOOPS; d++);
+        // speaker_stop();
+    } else if (strcmp(command_name, "stop_sound") == 0) {
+        speaker_stop();
+        print_string("Sound stopped.", *current_row_ptr + 1, 0);
     } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
         print_string("Goodbye!", *current_row_ptr, 0);
         // This will only be executed if 'exit' is the only thing typed.
@@ -158,6 +187,7 @@ int main(void)
     bool exit_shell = false;
     bool clock_enabled = false;
     syscall(7, 0, 0, 0); // Activate keyboard
+    speaker_init(); // Initialize speaker
     clear_screen();
     // print_string("Welcome-to-LumaOS-CLI\n", 0, 0);
 

@@ -33,6 +33,7 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/ext2.o \
        $(OUTPUT_FOLDER)/test_ext2.o\
 	   $(OUTPUT_FOLDER)/cmos.o \
+	   $(OUTPUT_FOLDER)/speaker.o \
        $(OUTPUT_FOLDER)/paging.o \
 			$(OUTPUT_FOLDER)/process.o \
 			$(OUTPUT_FOLDER)/scheduler.o \
@@ -40,7 +41,7 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso -audiodev pa,id=snd0 -machine pcspk-audiodev=snd0 
 
 # run: iso
 # 	qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/OS2025.iso
@@ -78,17 +79,19 @@ inserter:
 
 user-shell:
 	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/crt0.s -o crt0.o
+	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/portio.c -o portio_shell.o
 	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/user-shell.c -o user-shell.o
 	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/builtin_commands.c -o builtin_commands.o
-	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/stdlib/string.c -o string.o
+	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/stdlib/string.c -o string_shell.o
+	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/speaker.c -o speaker_shell.o
 	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=binary \
-		crt0.o user-shell.o builtin_commands.o string.o -o $(OUTPUT_FOLDER)/shell
+        crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o -o $(OUTPUT_FOLDER)/shell
 	@echo Linking object shell object files and generate flat binary...
 	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=elf32-i386 \
-		crt0.o user-shell.o builtin_commands.o string.o -o $(OUTPUT_FOLDER)/shell_elf
+        crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o -o $(OUTPUT_FOLDER)/shell_elf
 	@echo Linking object shell object files and generate ELF32 for debugging...
 	@size --target=binary $(OUTPUT_FOLDER)/shell
-	@rm -f *.o
+	@rm -f crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o # Specific cleanup
 
 insert-shell: disk inserter user-shell
 	@echo Inserting shell into root directory...
@@ -132,6 +135,9 @@ $(OUTPUT_FOLDER)/idt.o: $(SOURCE_FOLDER)/idt.c
 
 # Compile keyboard (C)
 $(OUTPUT_FOLDER)/keyboard.o: $(SOURCE_FOLDER)/keyboard.c
+	$(CC) $(CFLAGS) $< -o $@
+
+$(OUTPUT_FOLDER)/speaker.o: $(SOURCE_FOLDER)/speaker.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Compile disk (C)
