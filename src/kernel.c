@@ -31,7 +31,7 @@ void kernel_setup(void)
     // 3. Inisialisasi TSS untuk multi-tasking (user mode)
     gdt_install_tss();
     set_tss_register();
-  
+
     // Allocate first 4 MiB virtual memory
     paging_allocate_user_page_frame(&_paging_kernel_page_directory, (uint8_t *)0);
 

@@ -53,24 +53,30 @@ void *memmove(void *dest, const void *src, size_t n)
   return dest;
 }
 
-size_t strlen(const char *str) {
+size_t strlen(const char *str)
+{
   size_t len = 0;
-  while (str[len]) {
-      len++;
+  while (str[len])
+  {
+    len++;
   }
   return len;
 }
 
-char *strcpy(char *dest, const char *src) {
+char *strcpy(char *dest, const char *src)
+{
   char *d = dest;
-  while ((*d++ = *src++));
+  while ((*d++ = *src++))
+    ;
   return dest;
 }
 
-int strcmp(const char *s1, const char *s2) {
-  while (*s1 && (*s1 == *s2)) {
-      s1++;
-      s2++;
+int strcmp(const char *s1, const char *s2)
+{
+  while (*s1 && (*s1 == *s2))
+  {
+    s1++;
+    s2++;
   }
-  return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+  return *(const unsigned char *)s1 - *(const unsigned char *)s2;
 }

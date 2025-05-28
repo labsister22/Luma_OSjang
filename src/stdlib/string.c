@@ -50,40 +50,63 @@ void *memmove(void *dest, const void *src, size_t n)
     }
 
     return dest;
-}     
-size_t strlen(const char *str) {
+}
+size_t strlen(const char *str)
+{
     size_t len = 0;
-    while (str[len] != '\0') len++;
+    while (str[len] != '\0')
+        len++;
     return len;
 }
 
-int strcmp(const char *s1, const char *s2) {
-    while (*s1 && (*s1 == *s2)) {
+int strcmp(const char *s1, const char *s2)
+{
+    while (*s1 && (*s1 == *s2))
+    {
         s1++;
         s2++;
     }
     return *(const unsigned char *)s1 - *(const unsigned char *)s2;
 }
-int strncmp(const char *s1, const char *s2, size_t n) {
-    while (n && *s1 && (*s1 == *s2)) {
-        ++s1; ++s2; --n;
+int strncmp(const char *s1, const char *s2, size_t n)
+{
+    while (n && *s1 && (*s1 == *s2))
+    {
+        ++s1;
+        ++s2;
+        --n;
     }
     return n ? *(unsigned char *)s1 - *(unsigned char *)s2 : 0;
 }
-char *strcat(char *dest, const char *src) {
+char *strcat(char *dest, const char *src)
+{
     char *original_dest = dest;
-    while (*dest != '\0') {
+    while (*dest != '\0')
+    {
         dest++;
     }
-    while ((*dest++ = *src++) != '\0');
+    while ((*dest++ = *src++) != '\0')
+        ;
     return original_dest;
 }
-char *strcpy(char *dest, const char *src) {
+char *strcpy(char *dest, const char *src)
+{
 
     char *original_dest = dest;
 
-    while ((*dest++ = *src++) != '\0');
+    while ((*dest++ = *src++) != '\0')
+        ;
 
     return original_dest;
+}
 
+char *strchr(const char *s, int c)
+{
+    while (*s)
+    {
+        if (*s == (char)c)
+            return (char *)s;
+        s++;
+    }
+    return NULL;
 }
