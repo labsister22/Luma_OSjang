@@ -5,12 +5,22 @@
 
 // No custom string functions here, relying strictly on header/stdlib/string.h
 extern char current_working_directory[256];
+uint32_t current_inode = 2; // Default to root inode for directory operations
+int current_output_row = 0; // Track the current output row for commands like ls
 void print_string(const char* str, int row, int col) {
     syscall(6, (uint32_t)str, row, col);
 }
 
 void print_char(char c, int row, int col) {
     syscall(5, (uint32_t)&c, col, row);
+}
+
+void print_line(const char *str)
+{
+    if (current_output_row < 24) { // Basic check to prevent writing off common screen area
+        print_string(str, current_output_row, 0);
+    }
+    current_output_row++;
 }
 
 // --- Helper for path concatenation (Purely for shell display, not actual FS changes) ---
@@ -103,10 +113,17 @@ void handle_cd(const char* path, int current_row) {
     (void)path;
     (void)current_row;
 }
+int handle_ls(int current_row) {
+    current_output_row = current_row +1;
 
-void handle_ls(int current_row) {
-    print_string("ls: Not implemented. No kernel syscall for directory listing.", current_row+1, 0);
-    (void)current_row;
+    print_line("name                type   size");
+    print_line("================================");
+
+    // Use syscall to get directory listing
+    syscall(22, (uint32_t)current_output_row, current_inode, 0);
+
+    // Since syscall returns void, just advance the prompt after headers
+    return current_output_row + 2;
 }
 
 void handle_mkdir(const char* name, int current_row) {

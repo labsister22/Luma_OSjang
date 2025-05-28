@@ -234,6 +234,108 @@ void syscall(struct InterruptFrame frame)
     __asm__ volatile("cli; hlt");
   }
   break;
+  case 22: // SYS_LIST_DIR
+  {
+    uint8_t start_print_row = (uint8_t)frame.cpu.general.ebx;
+    uint32_t dir_inode_idx = frame.cpu.general.ecx;
+    uint8_t current_print_row = start_print_row;
+    
+    const uint8_t col_name = 0;
+    const uint8_t col_type = 20; // Adjusted column for type
+    const uint8_t col_size = 27; // Adjusted column for size
+
+    char header1[] = "name                type   size";
+    for (int k = 0; header1[k] != '\0'; k++) {
+        framebuffer_write(current_print_row, k, header1[k], 0x0F, 0x00);
+    }
+    current_print_row++;
+    if (current_print_row >= 24) { // Cek batas layar
+        frame.cpu.general.eax = current_print_row;
+        goto end_list_dir_syscall_modified; // Langsung keluar jika layar penuh setelah header
+    }
+
+    // Header line 2: "================================"
+    char header2[] = "================================";
+    for (int k = 0; header2[k] != '\0' && k < 32; k++) { // Batasi panjang header jika perlu
+        framebuffer_write(current_print_row, k, header2[k], 0x0F, 0x00);
+    }
+    current_print_row++;
+    if (current_print_row >= 24) { // Cek batas layar
+        frame.cpu.general.eax = current_print_row;
+        goto end_list_dir_syscall_modified; // Langsung keluar
+    }
+
+    // 2. Read directory inode and list entries
+    struct EXT2Inode dir_inode;
+    read_inode(dir_inode_idx, &dir_inode); 
+
+    if (!(dir_inode.i_mode & EXT2_S_IFDIR)) {
+        // Jika bukan direktori, mungkin cetak pesan error atau biarkan kosong
+        // Untuk saat ini, kita kembalikan baris setelah header
+        frame.cpu.general.eax = current_print_row; 
+        break;
+    }
+
+    uint8_t block_buffer[BLOCK_SIZE]; 
+    for (uint32_t i = 0; i < dir_inode.i_blocks && i < 12; i++) { 
+        if (dir_inode.i_block[i] == 0) continue;
+
+        read_blocks(block_buffer, dir_inode.i_block[i], 1); 
+
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) { 
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(block_buffer + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) { 
+                break; 
+            }
+            if (offset + entry->rec_len > BLOCK_SIZE) { 
+                 break;
+            }
+
+            // Print entry name
+            char name_char;
+            const char* entry_name = (const char*)(entry + 1); // Name is stored after the struct
+            for(uint8_t k=0; k < entry->name_len && k < (col_type - col_name -1) ; k++) {
+                 name_char = entry_name[k];
+                 if (name_char >= 32 && name_char <= 126) { 
+                    framebuffer_write(current_print_row, col_name + k, name_char, 0x0F, 0x00);
+                 } else {
+                    framebuffer_write(current_print_row, col_name + k, '?', 0x0F, 0x00); 
+                 }
+            }
+            
+            // Determine type string
+            const char *type_str = "unk";
+            if (entry->file_type == 2) { // EXT2_FT_DIR
+                type_str = "dir";
+            } else if (entry->file_type == 1) { // EXT2_FT_REG_FILE
+                type_str = "file";
+            }
+            for(int k=0; type_str[k] != '\0' && k < 4; k++) {
+                 framebuffer_write(current_print_row, col_type + k, type_str[k], 0x0F, 0x00);
+            }
+
+            // Print size (Placeholder)
+            char size_placeholder[] = "0"; 
+            for(int k=0; size_placeholder[k] != '\0'; k++) {
+                 framebuffer_write(current_print_row, col_size + k, size_placeholder[k], 0x0F, 0x00);
+            }
+            
+            current_print_row++;
+            if (current_print_row >= 24) { 
+                goto end_list_dir_syscall_modified; 
+            }
+            
+            offset += entry->rec_len;
+        }
+    }
+
+end_list_dir_syscall_modified:; // Label baru untuk goto
+    framebuffer_set_cursor(current_print_row, 0); 
+    frame.cpu.general.eax = current_print_row;    // Kembalikan baris berikutnya yang tersedia
+  }
+  break;
 
   default:
     // Unknown system call
