@@ -19,7 +19,7 @@ void handle_mv(const char* source, const char* destination, int current_row);
 void handle_find(const char* name, int current_row);
 
 // Utility functions (from user-shell.c / shared)
-void print_string(const char* str, int row, int col);
-void print_char(char c, int row, int col);
+void print_string_shell(const char* str, int row, int col);
+void print_char_shell(char c, int row, int col);
 
 #endif // BUILTIN_COMMANDS_H

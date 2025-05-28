@@ -34,14 +34,15 @@ OBJS = $(OUTPUT_FOLDER)/kernel-entrypoint.o \
        $(OUTPUT_FOLDER)/test_ext2.o\
 	   $(OUTPUT_FOLDER)/cmos.o \
 	   $(OUTPUT_FOLDER)/speaker.o \
+	   $(OUTPUT_FOLDER)/vga_graphics.o \
        $(OUTPUT_FOLDER)/paging.o \
 			$(OUTPUT_FOLDER)/process.o \
 			$(OUTPUT_FOLDER)/scheduler.o \
-			$(OUTPUT_FOLDER)/context-switch.o			  
+			$(OUTPUT_FOLDER)/context-switch.o	  
 
 # Run QEMU
 run: all
-	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso -audiodev pa,id=snd0 -machine pcspk-audiodev=snd0 
+	@qemu-system-i386 -s -S -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso -audiodev pa,id=snd0 -machine pcspk-audiodev=snd0 
 
 # run: iso
 # 	qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/OS2025.iso
@@ -169,6 +170,10 @@ $(OUTPUT_FOLDER)/scheduler.o: $(SOURCE_FOLDER)/scheduler.c
 	$(CC) $(CFLAGS) $< -o $@
 
 $(OUTPUT_FOLDER)/cmos.o: $(SOURCE_FOLDER)/cmos.c
+	$(CC) $(CFLAGS) $< -o $@
+
+# Compile vga_graphics (C) - NEW RULE
+$(OUTPUT_FOLDER)/vga_graphics.o: $(SOURCE_FOLDER)/vga_graphics.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Link Semua Object Files - FIX: Use TAB instead of spaces

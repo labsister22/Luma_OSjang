@@ -6,6 +6,7 @@
 #include "header/filesystem/ext2.h"
 #include "header/text/framebuffer.h"
 #include "header/driver/cmos.h"
+#include "header/driver/vga_graphics.h"
 
 struct TSSEntry _interrupt_tss_entry = {
     .ss0 = GDT_KERNEL_DATA_SEGMENT_SELECTOR,
@@ -58,9 +59,16 @@ void pic_remap(void)
   out(PIC2_DATA, PIC_DISABLE_ALL_MASK);
 }
 
+// SAFE VGA write for error messages - NO FUNCTION CALLS
+static void safe_error_write(char c, int pos) {
+    volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+    if (pos >= 0 && pos < 80 * 25) {
+        vga[pos] = (uint16_t)c | (0x4F << 8); // White on red background
+    }
+}
+
 void main_interrupt_handler(struct InterruptFrame frame)
 {
-
   uint32_t int_num = frame.int_number;
 
   switch (int_num)
@@ -69,34 +77,49 @@ void main_interrupt_handler(struct InterruptFrame frame)
     break;
   case 0x21:
     // Keyboard interrupt (IRQ1)
-    // ACK keyboard interrupt (IRQ1)
     keyboard_isr();
-    // pic_ack(IRQ_KEYBOARD);
     break;
   case 0x30:
     syscall(frame);
     break;
-  case 0x0E: // Page Fault
+  case 0x0E: // Page Fault - PERBAIKAN DI SINI
   {
     uint32_t cr2;
     __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
-    framebuffer_write(5, 0, 'F', 0xF, 0x0); // F for Fault
-    framebuffer_write(6, 0, ((cr2 >> 24) & 0xF) + '0', 0xF, 0x0);
-    framebuffer_write(7, 0, ((cr2 >> 20) & 0xF) + '0', 0xF, 0x0);
-    framebuffer_write(8, 0, ((cr2 >> 16) & 0xF) + '0', 0xF, 0x0);
-    framebuffer_write(9, 0, ((cr2 >> 12) & 0xF) + '0', 0xF, 0x0);
-    framebuffer_write(10, 0, ((cr2 >> 8) & 0xF) + '0', 0xF, 0x0);
-    framebuffer_write(11, 0, ((cr2 >> 4) & 0xF) + '0', 0xF, 0x0);
-    framebuffer_write(12, 0, (cr2 & 0xF) + '0', 0xF, 0x0);
-    // Print cr2, eip, error code, dsb
-    while (1)
-      ;
+    
+    // SAFE error display - direct VGA write tanpa function calls
+    safe_error_write('P', 0);
+    safe_error_write('A', 1);
+    safe_error_write('G', 2);
+    safe_error_write('E', 3);
+    safe_error_write(' ', 4);
+    safe_error_write('F', 5);
+    safe_error_write('A', 6);
+    safe_error_write('U', 7);
+    safe_error_write('L', 8);
+    safe_error_write('T', 9);
+    safe_error_write(':', 10);
+    
+    // Convert cr2 to hex and display
+    char hex_chars[] = "0123456789ABCDEF";
+    for (int i = 0; i < 8; i++) {
+        int nibble = (cr2 >> (28 - i * 4)) & 0xF;
+        safe_error_write(hex_chars[nibble], 12 + i);
+    }
+    
+    while (1); // Halt
   }
   break;
-  case 0x0D:                                // General Protection Fault
-    framebuffer_write(6, 0, 'G', 0xF, 0x0); // G for GP Fault
-    while (1)
-      ;
+  case 0x0D: // General Protection Fault - PERBAIKAN DI SINI
+    safe_error_write('G', 0);
+    safe_error_write('P', 1);
+    safe_error_write(' ', 2);
+    safe_error_write('F', 3);
+    safe_error_write('A', 4);
+    safe_error_write('U', 5);
+    safe_error_write('L', 6);
+    safe_error_write('T', 7);
+    while (1);
     break;
 
   default:
@@ -138,26 +161,31 @@ void syscall(struct InterruptFrame frame)
     break;
 
   case 5: // SYS_PUTCHAR - Print single character
-    framebuffer_write(
-        frame.cpu.general.edx,            // row
-        frame.cpu.general.ecx,            // col
-        *((char *)frame.cpu.general.ebx), // character
-        0x0F,                             // color (white on black)
-        0x00);                            // bg_color
-    break;
+    {
+        char char_to_print = *((char *)frame.cpu.general.ebx);
+        int col = (int)frame.cpu.general.ecx;
+        int row = (int)frame.cpu.general.edx;
 
+        // Bounds check BEFORE calling VGA functions
+        if (row >= 0 && row < TEXT_ROWS && col >= 0 && col < TEXT_COLS) {
+            vga_draw_char_kernel(char_to_print, row, col, 15, 0);
+        }
+    }
+    break;
+    
   case 6: // SYS_PUTS - Print string
   {
     char *str = (char *)frame.cpu.general.ebx;
-    uint8_t col = frame.cpu.general.edx;
-    uint8_t row = frame.cpu.general.ecx;
+    int current_col = (int)frame.cpu.general.edx; // col
+    int current_row = (int)frame.cpu.general.ecx; // row
 
-    // Simple puts implementation
+    // Bounds check
+    if (current_row < 0 || current_row >= TEXT_ROWS) current_row = 0;
+    if (current_col < 0 || current_col >= TEXT_COLS) current_col = 0;
+
     uint32_t i = 0;
-    uint8_t current_col = col;
-    uint8_t current_row = row;
-    while (str[i] != '\0' && i < 1000)
-    { // Safety limit
+    while (str && str[i] != '\0' && i < 1024 && current_row < TEXT_ROWS)
+    {
       if (str[i] == '\n')
       {
         current_row++;
@@ -165,46 +193,54 @@ void syscall(struct InterruptFrame frame)
       }
       else
       {
-        framebuffer_write(current_row, current_col, str[i], 0x0F, 0x00);
-        current_col++;
-        if (current_col >= 80)
+        if (current_col >= TEXT_COLS)
         {
           current_col = 0;
           current_row++;
         }
+        
+        if (current_row < TEXT_ROWS && current_col < TEXT_COLS) {
+            vga_draw_char_kernel(str[i], current_row, current_col, 15, 0);
+            current_col++;
+        }
       }
       i++;
-      if (current_row >= 25)
-        break; // Screen height limit
     }
-    framebuffer_set_cursor(current_row, current_col); // Update cursor position
   }
   break;
-
+  
   case 7: // SYS_KEYBOARD_ACTIVATE - Activate keyboard
     keyboard_state_activate();
     break;
 
   case 8: // SYS_CLEAR_SCREEN - Clear screen
-    framebuffer_clear();
-    framebuffer_set_cursor(0, 0);
+    vga_clear_screen_kernel();
     break;
 
-  case 9: // SYS_SET_CURSOR - Set cursor position (new)
-    framebuffer_set_cursor(
-        frame.cpu.general.ecx,  // row
-        frame.cpu.general.ebx); // col
+  case 9: // SYS_SET_CURSOR - Set cursor position
+    {
+        int col = (int)frame.cpu.general.ebx;
+        int row = (int)frame.cpu.general.ecx;
+        
+        // Bounds check
+        if (row >= 0 && row < TEXT_ROWS && col >= 0 && col < TEXT_COLS) {
+            vga_set_cursor_kernel(col, row);
+        }
+    }
     break;
-  case 10:
+    
+  case 10: // SYS_GET_TIME
       {
-          struct Time t = get_cmos_time();
-          struct Time* out = (struct Time*) frame.cpu.general.ebx;
-          out->hour = t.hour;
-          out->minute = t.minute;
-          out->second = t.second;
+          struct Time t_cmos = get_cmos_time();
+          struct rtc_time* out_time_ptr = (struct rtc_time*) frame.cpu.general.ebx;
+          if (out_time_ptr) {
+              out_time_ptr->hour = t_cmos.hour;
+              out_time_ptr->minute = t_cmos.minute;
+              out_time_ptr->second = t_cmos.second;
+          }
       }
       break;
-
+      
   default:
     // Unknown system call
     break;

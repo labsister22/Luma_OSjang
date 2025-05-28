@@ -2,15 +2,18 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "header/stdlib/string.h" // Now strictly adhering to provided functions only
+#include "header/stdlib/string.h"
 #include "header/shell/builtin_commands.h"
 #include "header/driver/speaker.h"
 
 #define COMMAND_BUFFER_SIZE 128
 #define MAX_PATH_LENGTH 256
 
-#define BEEP_FREQUENCY 440  // Frekuensi untuk nada A4
-// #define BEEP_DURATION_LOOPS 500000 
+#define BEEP_FREQUENCY 440
+// #define BEEP_DURATION_LOOPS 500000 // Jika ingin beep berhenti otomatis
+
+#define SHELL_TEXT_ROWS 25
+#define SHELL_TEXT_COLS 80 // Pastikan ini konsisten dengan penggunaan
 
 // Global current working directory
 char current_working_directory[MAX_PATH_LENGTH] = "/";
@@ -24,11 +27,9 @@ struct Time {
 int simple_atoi(const char* str) {
     int res = 0;
     int i = 0;
-    // Lewati spasi di awal jika ada
     while (str[i] == ' ') {
         i++;
     }
-    // Proses digit
     while (str[i] >= '0' && str[i] <= '9') {
         res = res * 10 + (str[i] - '0');
         i++;
@@ -36,28 +37,35 @@ int simple_atoi(const char* str) {
     return res;
 }
 
-void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
-{
+void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx) {
     __asm__ volatile("mov %0, %%ebx" : : "r"(ebx));
     __asm__ volatile("mov %0, %%ecx" : : "r"(ecx));
     __asm__ volatile("mov %0, %%edx" : : "r"(edx));
     __asm__ volatile("mov %0, %%eax" : : "r"(eax));
     __asm__ volatile("int $0x30");
 }
+
 void clear_screen() {
     syscall(8, 0, 0, 0);
 }
 
 void set_cursor(int col, int row) {
-    syscall(9, col, row, 0);
+    // Batasi kursor agar tidak keluar dari layar teks
+    if (row >= SHELL_TEXT_ROWS) row = SHELL_TEXT_ROWS - 1;
+    if (col >= SHELL_TEXT_COLS) col = SHELL_TEXT_COLS - 1;
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    syscall(9, (uint32_t)col, (uint32_t)row, 0);
 }
 
+// get_char() yang sudah ada, ini blocking
 char get_char() {
     char c = 0;
     do {
-        syscall(4, (uint32_t)&c, 0, 0);
-        for (volatile int i = 0; i < 100; i++);
-    } while (c == 0);
+        syscall(4, (uint32_t)&c, 0, 0); // SYSCALL_KEYBOARD_READ
+        // Hapus loop delay jika syscall(4,...) sudah blocking
+        // for (volatile int i = 0; i < 100; i++); 
+    } while (c == 0); // Jika syscall get_char Anda bisa return 0 jika tidak ada input
     return c;
 }
 
@@ -79,216 +87,228 @@ void get_time_string(char* buffer) {
     buffer[8] = '\0';
 }
 
-// Function to process commands
 void process_command(char* command_buffer, int* current_row_ptr) {
-    // With strtok disallowed, simple command parsing (command + one arg) is the only option.
-    // If command_buffer contains spaces, this will treat the whole thing as one command name.
-    // Full UNIX-like command parsing is not possible under these constraints.
-
     char* command_name = command_buffer;
     char* arg1 = NULL;
 
-    // Manual attempt to find the first space to separate command and first argument.
-    // This is a very basic replacement for strtok for only one argument.
     size_t cmd_len = strlen(command_buffer);
     size_t i;
     for (i = 0; i < cmd_len; ++i) {
         if (command_buffer[i] == ' ') {
-            command_buffer[i] = '\0'; // Null-terminate command name
+            command_buffer[i] = '\0'; 
             arg1 = &command_buffer[i+1];
-            // Skip leading spaces for the argument
             while (*arg1 == ' ' && *arg1 != '\0') {
                 arg1++;
             }
-            if (*arg1 == '\0') { // If argument is just spaces or empty
+            if (*arg1 == '\0') { 
                 arg1 = NULL;
             }
             break;
         }
     }
 
-
     if (strlen(command_name) == 0) {
-        return; // Empty command
+        return; 
     }
+
+    // Pesan akan dicetak di baris berikutnya dari prompt
+    int msg_row = *current_row_ptr + 1; 
+    if (msg_row >= SHELL_TEXT_ROWS) {
+        msg_row = SHELL_TEXT_ROWS - 1; 
+    }
+
 
     if (strcmp(command_name, "cd") == 0) {
         if (arg1) {
-            handle_cd(arg1, *current_row_ptr);
+            handle_cd(arg1, *current_row_ptr); // handle_cd tidak mencetak, jadi current_row_ptr
         } else {
-            print_string("cd: missing argument", *current_row_ptr+1, 0);
+            print_string_shell("cd: missing argument", msg_row, 0);
         }
     } else if (strcmp(command_name, "ls") == 0) {
-        handle_ls(*current_row_ptr);
+        handle_ls(msg_row); // handle_ls akan mencetak di msg_row
     } else if (strcmp(command_name, "mkdir") == 0) {
         if (arg1) {
-            handle_mkdir(arg1, *current_row_ptr);
+            handle_mkdir(arg1, msg_row);
         } else {
-            print_string("mkdir: missing argument", *current_row_ptr+1, 0);
+            print_string_shell("mkdir: missing argument", msg_row, 0);
         }
     } else if (strcmp(command_name, "cat") == 0) {
         if (arg1) {
-            handle_cat(arg1, *current_row_ptr);
+            handle_cat(arg1, msg_row);
         } else {
-            print_string("cat: missing argument", *current_row_ptr+1, 0);
+            print_string_shell("cat: missing argument", msg_row, 0);
         }
     } else if (strcmp(command_name, "cp") == 0) {
-        // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("cp: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
+        print_string_shell("cp: requires two arguments", msg_row, 0);
     } else if (strcmp(command_name, "rm") == 0) {
         if (arg1) {
-            handle_rm(arg1, *current_row_ptr);
+            handle_rm(arg1, msg_row);
         } else {
-            print_string("rm: missing argument", *current_row_ptr+1, 0);
+            print_string_shell("rm: missing argument", msg_row, 0);
         }
     } else if (strcmp(command_name, "mv") == 0) {
-        // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
+        print_string_shell("mv: requires two arguments", msg_row, 0);
     } else if (strcmp(command_name, "find") == 0) {
         if (arg1) {
-            handle_find(arg1, *current_row_ptr);
+            handle_find(arg1, msg_row);
         } else {
-            print_string("find: missing argument", *current_row_ptr+1, 0);
+            print_string_shell("find: missing argument", msg_row, 0);
         }
-    } else if (strcmp(command_name, "beep") == 0) { // Tambahkan perintah beep
-        print_string("Playing beep...", *current_row_ptr + 1, 0);
+    } else if (strcmp(command_name, "beep") == 0) { 
+        print_string_shell("Playing beep...", msg_row, 0);
         speaker_play(BEEP_FREQUENCY);
-        // Tambahkan delay sederhana
-        // for (volatile int d = 0; d < BEEP_DURATION_LOOPS; d++);
-        // speaker_stop();
+        // Jika ingin beep berhenti otomatis, uncomment BEEP_DURATION_LOOPS dan loop delay
+        // for (volatile unsigned int d = 0; d < BEEP_DURATION_LOOPS; d++);
+        // speaker_stop(); // Panggil stop jika ingin durasi tertentu
     } else if (strcmp(command_name, "stop_sound") == 0) {
         speaker_stop();
-        print_string("Sound stopped.", *current_row_ptr + 1, 0);
-    } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
-        print_string("Goodbye!", *current_row_ptr, 0);
-        // This will only be executed if 'exit' is the only thing typed.
-        // It's technically unreachable now due to the main loop's check.
-    } else if (strcmp(command_name, "clock") == 0) { // Clock also handled directly
-        print_string("Clock running...", *current_row_ptr, 0);
-        // It's technically unreachable now due to the main loop's check.
-    }
+        print_string_shell("Sound stopped.", msg_row, 0);
+    } 
+    // Perintah 'exit' dan 'clock' ditangani di loop utama
     else {
-        print_string("Unknown command: ", *current_row_ptr+1, 0);
-        print_string(command_name, *current_row_ptr+1, (int)strlen("Unknown command: "));
+        char unknown_msg[COMMAND_BUFFER_SIZE + 20]; 
+        strcpy(unknown_msg, "Unknown command: ");
+        strcat(unknown_msg, command_name); 
+        print_string_shell(unknown_msg, msg_row, 0);
     }
 
-    *current_row_ptr += 1;
+    *current_row_ptr += 1; 
 }
 
 
 int main(void)
 {
-    // syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
-    // return 0;
     char buffer[COMMAND_BUFFER_SIZE];
-    int current_row = 0;
+    int current_row = 0; 
     int buffer_pos = 0;
-    int cursor_col = 0;
+    int cursor_col = 0; 
     bool exit_shell = false;
     bool clock_enabled = false;
+
     syscall(7, 0, 0, 0); // Activate keyboard
-    speaker_init(); // Initialize speaker
-    clear_screen();
-    // print_string("Welcome-to-LumaOS-CLI\n", 0, 0);
+    speaker_init();      
+    clear_screen(); 
+    // print_string_shell("Welcome to LumaOS CLI", 0, 0); // Pesan selamat datang
+    // current_row = 1; // Pindahkan ke baris berikutnya untuk prompt pertama
 
-    char last_time[9] = "";
+    char last_time_str[9] = ""; // Untuk membandingkan string waktu
+    char time_str[9];
+
     while (!exit_shell) {
-        // Polling jam dan input secara multitasking
-        int input_ready = 0;
-        char c = 0;
-        char time_str[9];
-        get_time_string(time_str);
-        if (clock_enabled) {
-            if (strcmp(time_str, last_time) != 0) {
-                print_string(time_str, 24, 70);
-                for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
-            }
+        if (current_row >= SHELL_TEXT_ROWS) { 
+             // Implementasi scroll sederhana: clear dan reset jika baris meluap
+             clear_screen();
+             current_row = 0;
+             // print_string_shell("--- Screen Cleared ---", current_row, 0);
+             // current_row++;
         }
 
-        char prompt[MAX_PATH_LENGTH+15];
-        print_string("luma@os:~$ ", current_row, 0);
-        strcat(prompt, current_working_directory);
-        cursor_col = 11;
-        set_cursor(cursor_col, current_row);
-        buffer_pos = 0;
-        for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) buffer[i] = '\0';
-        while (!input_ready) {
-            // Update jam setiap polling
-            if (clock_enabled) {
-                get_time_string(time_str);
-                if (strcmp(time_str, last_time) != 0) {
-                    print_string(time_str, 24, 70);
-                    for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
-                }
-            }
-            // Cek input keyboard (non-blocking polling)
-            syscall(4, (uint32_t)&c, 0, 0);
-            if (c != 0) {
-                input_ready = 1;
-                break;
-            }
-            // Delay polling
-            for (volatile int d = 0; d < 100000; d++);
+        // Bangun prompt dengan CWD
+        char prompt_display_buffer[MAX_PATH_LENGTH + 30]; // Buffer untuk string prompt
+        prompt_display_buffer[0] = '\0'; // Inisialisasi untuk strcat
+        strcpy(prompt_display_buffer, "luma@os:");
+        strcat(prompt_display_buffer, current_working_directory);
+        // Tambahkan '/' jika CWD bukan root dan tidak diakhiri '/'
+        if (strcmp(current_working_directory, "/") != 0 && 
+            current_working_directory[strlen(current_working_directory) - 1] != '/') {
+            strcat(prompt_display_buffer, "/");
         }
-        // Proses input seperti biasa
-        while (1) {
+        strcat(prompt_display_buffer, "$ ");
+
+        print_string_shell(prompt_display_buffer, current_row, 0);
+        cursor_col = strlen(prompt_display_buffer); 
+        set_cursor(cursor_col, current_row);
+
+        // Bersihkan buffer perintah
+        buffer_pos = 0;
+        buffer[0] = '\0'; 
+
+        char c_input;
+        while (1) { // Loop untuk membaca satu baris perintah
+            // Update jam jika aktif (lakukan sebelum get_char agar tidak mengganggu input)
             if (clock_enabled) {
                 get_time_string(time_str);
-                if (strcmp(time_str, last_time) != 0) {
-                    print_string(time_str, 24, 70);
-                    for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
+                if (strcmp(time_str, last_time_str) != 0) {
+                    int temp_input_cursor_col = cursor_col; 
+                    int temp_input_current_row = current_row;
+                    // Cetak jam di pojok kanan atas (misalnya baris 0, kolom disesuaikan)
+                    print_string_shell(time_str, 0, SHELL_TEXT_COLS - 8 -1); // 8 char untuk waktu, 1 untuk null
+                    strcpy(last_time_str, time_str);
+                    set_cursor(temp_input_cursor_col, temp_input_current_row); // Kembalikan kursor input
                 }
             }
-            if (c == '\n' || c == '\r') {
-                buffer[buffer_pos] = '\0';
-                if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'i' && buffer[3] == 't' && buffer[4] == '\0') {
-                    current_row++;
-                    print_string("Goodbye!", current_row, 0);
+
+            c_input = get_char(); // Menggunakan get_char() yang blocking
+
+            if (c_input == '\n' || c_input == '\r') {
+                buffer[buffer_pos] = '\0'; // Akhiri string perintah
+                current_row++; // Baris untuk output perintah atau prompt berikutnya
+
+                if (strcmp(buffer, "exit") == 0) {
+                    if (current_row >= SHELL_TEXT_ROWS) { current_row = SHELL_TEXT_ROWS -1; }
+                    print_string_shell("Goodbye!", current_row, 0);
                     exit_shell = true;
+                    break; // Keluar dari loop input karakter, lalu keluar dari loop shell utama
                 }
-                if (buffer[0] == 'c' && buffer[1] == 'l' && buffer[2] == 'o' && buffer[3] == 'c' && buffer[4] == 'k' && buffer[5] == '\0') {
-                    clock_enabled = true;
-                    current_row++;
-                    print_string("Clock running...", current_row, 0);
-                    current_row++;
-                    break;
+                if (strcmp(buffer, "clock") == 0) {
+                    clock_enabled = !clock_enabled; // Toggle status jam
+                    if (current_row >= SHELL_TEXT_ROWS) { current_row = SHELL_TEXT_ROWS -1; }
+                    if (clock_enabled) {
+                        print_string_shell("Clock enabled.", current_row, 0);
+                        get_time_string(time_str); // Tampilkan jam sekali saat diaktifkan
+                        print_string_shell(time_str, 0, SHELL_TEXT_COLS - 8 -1);
+                        strcpy(last_time_str, time_str);
+                    } else {
+                        print_string_shell("Clock disabled.", current_row, 0);
+                        // Hapus jam dari layar (cetak spasi)
+                        print_string_shell("        ", 0, SHELL_TEXT_COLS - 8 -1);
+                    }
+                    current_row++; 
+                    break; // Keluar dari loop input karakter, kembali ke prompt baru
                 }
-                if (!exit_shell) {
-                    process_command(buffer, &current_row);
+
+                if (!exit_shell && strlen(buffer) > 0) { 
+                    process_command(buffer, &current_row); 
+                } else if (strlen(buffer) == 0) { 
+                    // Jika hanya enter ditekan, current_row sudah dinaikkan, prompt baru akan muncul
                 }
-                current_row++;
-                break;
-            } else if (c == '\b' || c == 127) {
-                if (buffer_pos > 0 && cursor_col > 11) {
+                break; // Keluar dari loop input karakter, kembali ke prompt baru
+            } else if (c_input == '\b' || c_input == 127) { // Backspace
+                // Hanya backspace jika ada karakter di buffer dan kursor tidak di awal prompt
+                if (buffer_pos > 0 && cursor_col > (int)strlen(prompt_display_buffer)) {
                     buffer_pos--;
                     cursor_col--;
-                    buffer[buffer_pos] = '\0';
-                    print_char(' ', current_row, cursor_col);
+                    buffer[buffer_pos] = '\0'; // Hapus karakter dari buffer
+                    print_char_shell(' ', current_row, cursor_col); // Hapus karakter di layar
                     set_cursor(cursor_col, current_row);
+                } else if (buffer_pos > 0 && cursor_col > 0) { // Jika prompt sangat pendek
+                     buffer_pos--;
+                     cursor_col--;
+                     buffer[buffer_pos] = '\0';
+                     print_char_shell(' ', current_row, cursor_col);
+                     set_cursor(cursor_col, current_row);
                 }
-            } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) {
-                buffer[buffer_pos] = c;
+            } else if (c_input >= 32 && c_input <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) { // Karakter dapat dicetak
+                buffer[buffer_pos] = c_input;
                 buffer_pos++;
-                print_char(c, current_row, cursor_col);
+                print_char_shell(c_input, current_row, cursor_col);
                 cursor_col++;
-                set_cursor(cursor_col, current_row);
-                if (cursor_col >= 80) {
+                if (cursor_col >= SHELL_TEXT_COLS) { // Auto wrap input sederhana
                     current_row++;
                     cursor_col = 0;
-                    set_cursor(cursor_col, current_row);
+                    if (current_row >= SHELL_TEXT_ROWS) {
+                        // Jika wrap menyebabkan overflow, biarkan kernel yang scroll atau clear screen
+                        current_row = SHELL_TEXT_ROWS - 1; // Cegah kursor keluar batas bawah
+                        // Mungkin perlu scroll manual di sini jika kernel tidak melakukannya
+                    }
                 }
+                set_cursor(cursor_col, current_row);
             }
-            // Ambil input berikutnya (polling)
-            c = 0;
-            syscall(4, (uint32_t)&c, 0, 0);
-            for (volatile int d = 0; d < 10000; d++);
-        }
-        if (current_row >= 24) {
-            clear_screen();
-            current_row = 2;
-            print_string("LumaOS Shell v1.0", 0, 0);
-            print_string("--- Screen cleared due to overflow ---", 1, 0);
-        }
-    }
+        } // End while(1) for char input (satu baris perintah)
+    } // End while(!exit_shell)
+
+    clear_screen();
+    print_string_shell("LumaOS Shell Terminated.", 0,0);
+
     return 0;
 }
