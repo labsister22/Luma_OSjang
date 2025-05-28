@@ -21,37 +21,54 @@ void kernel_setup(void)
     pic_remap();
     initialize_idt();
     activate_keyboard_interrupt();
-
     framebuffer_clear();
     framebuffer_set_cursor(0, 0);
 
-    // 2. Inisialisasi sistem file EXT2
+    // Initialize EXT2 filesystem
     initialize_filesystem_ext2();
 
-    // 3. Inisialisasi TSS untuk multi-tasking (user mode)
+    // Initialize TSS for multi-tasking
     gdt_install_tss();
     set_tss_register();
 
-    // Allocate first 4 MiB virtual memory
-    paging_allocate_user_page_frame(&_paging_kernel_page_directory, (uint8_t *)0);
+    // CRITICAL FIX: Proper shell loading address
+    uint8_t *shell_load_addr = (uint8_t *)0x400000;  // 4MB mark
 
-    // 5. Muat program shell ke memori
+    // Pre-allocate memory for shell in kernel page directory
+    for (uint32_t i = 0; i < 32; i++) {  // 32 pages = 128KB
+        paging_allocate_user_page_frame(&_paging_kernel_page_directory, 
+                                       shell_load_addr + i * 0x1000);
+    }
+
+    // CRITICAL: Load shell with correct address
     struct EXT2DriverRequest request = {
-        .buf = (uint8_t *)0,
+        .buf = shell_load_addr,        // ✅ 0x400000 not 0x0
         .name = "shell",
         .parent_inode = 2,
-        .buffer_size = 0x100000,
+        .buffer_size = 0x100000,       // 1MB buffer
         .name_len = 5,
     };
-    // Panggil syscall read (EAX=0) untuk memuat shell.
-    // Catatan: Syscall read di interrupt.c Anda saat ini tidak mengembalikan status sukses/gagal.
-    // Jika ada masalah pemuatan, Anda mungkin tidak melihatnya secara langsung di sini.
-    read(request);
 
-    // Set TSS $esp pointer and jump into shell
-    set_tss_kernel_current_stack();
-
-    process_create_user_process(request);
-    paging_use_page_directory(_process_list[0].context.page_directory_virtual_addr);
-    scheduler_switch_to_next_process();
+    // Load shell from EXT2
+    int8_t shell_status = read(request);
+    
+    if (shell_status == 0) {
+        // Shell loaded successfully
+        set_tss_kernel_current_stack();
+        
+        // Create user process with validated address
+        int32_t process_result = process_create_user_process(request);
+        
+        if (process_result == PROCESS_CREATE_SUCCESS) {
+            // Switch to user process
+            paging_use_page_directory(_process_list[0].context.page_directory_virtual_addr);
+            scheduler_switch_to_next_process();
+        } else {
+            // Process creation failed - halt
+            while (1) __asm__("hlt");
+        }
+    } else {
+        // Shell loading failed - halt
+        while (1) __asm__("hlt");
+    }
 }

@@ -211,10 +211,40 @@ void syscall(struct InterruptFrame frame)
   }
 }
 
-void isr_handler(struct InterruptFrame frame)
-{
-  // Simple handler - just return
-  (void)frame; // Suppress unused parameter warning
+// Di interrupt.c
+void isr_handler(struct InterruptFrame frame) {
+    if (frame.int_number == 0xE) { // Page Fault
+        uint32_t fault_addr;
+        __asm__ volatile("mov %%cr2, %0" : "=r"(fault_addr));
+
+        // Coba cetak karakter sederhana saja untuk diagnosis awal
+        framebuffer_write(0, 0, 'P', 0xC, 0x0); // P for Page Fault
+        framebuffer_write(0, 1, 'F', 0xC, 0x0);
+
+        // Coba cetak satu digit dari CR2
+        // Hanya untuk memastikan CRT memory bisa diakses
+        // Ambil nibble paling signifikan (digit pertama dari 8 digit hex)
+        char first_digit_char = '0';
+        uint8_t first_nibble = (fault_addr >> 28) & 0xF;
+        if (first_nibble < 10) {
+            first_digit_char = '0' + first_nibble;
+        } else {
+            first_digit_char = 'A' + (first_nibble - 10);
+        }
+        framebuffer_write(0, 3, first_digit_char, 0xF, 0x0);
+
+
+        // Di sini Anda bisa coba cetak 'E' atau 'e' jika Anda punya error_code
+        // Misalnya: framebuffer_write(0, 5, 'E', 0xF, 0x0); // 'E' for error code
+        // tapi jika belum punya error_code di struct, jangan gunakan
+
+        while (1) __asm__("hlt"); // Hentikan eksekusi
+    }
+
+    // Untuk exception lainnya, cetak saja 'E' untuk Exception
+    // atau gunakan main_interrupt_handler jika itu yang Anda inginkan
+    framebuffer_write(0, 0, 'E', 0xE, 0x0);
+    while (1) __asm__("hlt");
 }
 
 void activate_timer_interrupt(void)

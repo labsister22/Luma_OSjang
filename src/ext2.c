@@ -103,22 +103,56 @@ void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_b
   uint32_t blocks_needed = ceil_div(node->i_size, BLOCK_SIZE);
   uint8_t *data = (uint8_t *)ptr;
 
+  DEBUG_PRINT("DEBUG allocate_node_blocks: size=%u, blocks_needed=%u\n", 
+              node->i_size, blocks_needed);
+  DEBUG_PRINT("DEBUG allocate_node_blocks: first 16 bytes of input data: ");
+  for (uint32_t i = 0; i < 16 && i < node->i_size; i++) {
+    DEBUG_PRINT("%02X ", data[i]);
+  }
+  DEBUG_PRINT("\n");
+
   // Batasi jumlah blok yang digunakan (hanya direct blocks)
   uint32_t blocks_to_allocate = blocks_needed > 12 ? 12 : blocks_needed;
   node->i_blocks = blocks_to_allocate;
 
   for (uint32_t i = 0; i < blocks_to_allocate; i++)
   {
+    // Allocate block
     node->i_block[i] = allocate_block(prefered_bgd);
+    DEBUG_PRINT("DEBUG allocate_node_blocks: allocated block %u for index %u\n", 
+                node->i_block[i], i);
 
-    // Tulis data ke blok ini
+    // Calculate bytes to write for this block
     uint32_t bytes_to_write = node->i_size - (i * BLOCK_SIZE);
     if (bytes_to_write > BLOCK_SIZE)
       bytes_to_write = BLOCK_SIZE;
 
-    uint8_t buffer[BLOCK_SIZE] = {0};
+    // Prepare block buffer and copy data
+    uint8_t buffer[BLOCK_SIZE];
+    memset(buffer, 0, BLOCK_SIZE); // Clear buffer first
+    
+    // Copy actual file data to buffer
     memcpy(buffer, data + (i * BLOCK_SIZE), bytes_to_write);
+    
+    DEBUG_PRINT("DEBUG allocate_node_blocks: writing %u bytes to block %u\n", 
+                bytes_to_write, node->i_block[i]);
+    DEBUG_PRINT("DEBUG allocate_node_blocks: first 16 bytes being written: ");
+    for (uint32_t j = 0; j < 16 && j < bytes_to_write; j++) {
+      DEBUG_PRINT("%02X ", buffer[j]);
+    }
+    DEBUG_PRINT("\n");
+    
+    // Write block to disk
     write_blocks(buffer, node->i_block[i], 1);
+    
+    // Verify write by reading back
+    uint8_t verify_buffer[BLOCK_SIZE];
+    read_blocks(verify_buffer, node->i_block[i], 1);
+    DEBUG_PRINT("DEBUG allocate_node_blocks: verification read first 16 bytes: ");
+    for (uint32_t j = 0; j < 16 && j < bytes_to_write; j++) {
+      DEBUG_PRINT("%02X ", verify_buffer[j]);
+    }
+    DEBUG_PRINT("\n");
   }
 }
 
@@ -151,7 +185,7 @@ int8_t write(struct EXT2DriverRequest request)
   }
 
   // Batasi ukuran file untuk mencegah overflow
-  if (request.buffer_size > 20 * BLOCK_SIZE)
+  if (request.buffer_size > 40 * BLOCK_SIZE)
   {
     DEBUG_PRINT("Error: File too large. Max size: %u bytes\n", 20 * BLOCK_SIZE);
     return -1;
@@ -228,7 +262,19 @@ int8_t write(struct EXT2DriverRequest request)
     // Alokasikan blok dan tulis data dengan validasi
     if (request.buffer_size > 0 && request.buf != NULL)
     {
+      DEBUG_PRINT("DEBUG: Calling allocate_node_blocks for file data\n");
       allocate_node_blocks(request.buf, &new_node, inode_to_bgd(new_inode));
+    }
+    else if (request.buffer_size > 0)
+    {
+      DEBUG_PRINT("Warning: File has size but no buffer data\n");
+      // Still allocate blocks but don't write data
+      uint32_t blocks_needed = ceil_div(request.buffer_size, BLOCK_SIZE);
+      uint32_t blocks_to_allocate = blocks_needed > 12 ? 12 : blocks_needed;
+      for (uint32_t i = 0; i < blocks_to_allocate; i++) {
+        new_node.i_block[i] = allocate_block(inode_to_bgd(new_inode));
+      }
+      new_node.i_blocks = blocks_to_allocate;
     }
   }
 

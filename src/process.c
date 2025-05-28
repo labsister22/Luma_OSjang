@@ -74,58 +74,91 @@ bool release_memory(struct ProcessControlBlock *pcb)
 
 int32_t process_create_user_process(struct EXT2DriverRequest request)
 {
-  int32_t retcode = PROCESS_CREATE_SUCCESS;
-  if (process_manager_state.active_process_count >= PROCESS_COUNT_MAX)
-  {
-    retcode = PROCESS_CREATE_FAIL_MAX_PROCESS_EXCEEDED;
-    goto exit_cleanup;
-  }
+    if (process_manager_state.active_process_count >= PROCESS_COUNT_MAX) {
+      return PROCESS_CREATE_FAIL_MAX_PROCESS_EXCEEDED;
+    }
 
-  // Ensure entrypoint is not located at kernel's section at higher half
-  if ((uint32_t)request.buf >= KERNEL_VIRTUAL_ADDRESS_BASE)
-  {
-    retcode = PROCESS_CREATE_FAIL_INVALID_ENTRYPOINT;
-    goto exit_cleanup;
-  }
+    // Find empty PCB slot
+    int32_t index_process_unused = -1;
+    for (int32_t i = 0; i < PROCESS_COUNT_MAX; i++)
+    {
+        if (!_process_list[i].metadata.active)
+        {
+            index_process_unused = i;
+            break;
+        }
+    }
 
-  // Check whether memory is enough for the executable and additional frame for user stack
-  uint32_t page_frame_count_needed = ceil_div(request.buffer_size + PAGE_FRAME_SIZE, PAGE_FRAME_SIZE);
-  if (!paging_allocate_check(page_frame_count_needed) || page_frame_count_needed > PROCESS_PAGE_FRAME_COUNT_MAX)
-  {
-    retcode = PROCESS_CREATE_FAIL_NOT_ENOUGH_MEMORY;
-    goto exit_cleanup;
-  }
+    if (index_process_unused == -1) {
+        return PROCESS_CREATE_FAIL_MAX_PROCESS_EXCEEDED;
+    }
 
-  // Process PCB
-  int32_t p_index = process_list_get_inactive_index();
-  struct ProcessControlBlock *new_pcb = &(_process_list[p_index]);
-  memcpy(new_pcb->metadata.name, request.name, 8 * sizeof(char));
-  struct PageDirectory *cur_active = paging_get_current_page_directory_addr();
-  new_pcb->context.page_directory_virtual_addr = paging_create_new_page_directory();
-  paging_use_page_directory(new_pcb->context.page_directory_virtual_addr);
+    struct ProcessControlBlock *new_pcb = &_process_list[index_process_unused];
+    
+    // CRITICAL: Ensure buffer address is valid and aligned
+    if (request.buf == NULL) {
+        return PROCESS_CREATE_FAIL_INVALID_ENTRYPOINT;
+    }
+    uint32_t addr = (uint32_t)request.buf;
+    if (addr < 0x400000 || addr >= 0x800000) {  // Must be in 4MB-8MB range
+        return PROCESS_CREATE_FAIL_INVALID_ENTRYPOINT;
+    }
+    uint32_t page_frame_count_needed = (request.buffer_size + PAGE_FRAME_SIZE - 1) / PAGE_FRAME_SIZE;
+    if (page_frame_count_needed > PROCESS_PAGE_FRAME_COUNT_MAX) {
+        return PROCESS_CREATE_FAIL_NOT_ENOUGH_MEMORY;
+    }
 
-  for (uint32_t i = 0; i < page_frame_count_needed; i++)
-  {
-    new_pcb->memory.virtual_addr_used[i] = request.buf + i * PAGE_FRAME_SIZE;
-    paging_allocate_user_page_frame(new_pcb->context.page_directory_virtual_addr, new_pcb->memory.virtual_addr_used[i]);
-  }
-  new_pcb->memory.page_frame_used_count = page_frame_count_needed;
-  read(request);
-  new_pcb->context.eip = (uint32_t)request.buf;
-  paging_use_page_directory(cur_active);
+    // Create new page directory
+    struct PageDirectory *cur_active = paging_get_current_page_directory_addr();
+    new_pcb->context.page_directory_virtual_addr = paging_create_new_page_directory();
+    
+    if (new_pcb->context.page_directory_virtual_addr == NULL) {
+      return PROCESS_CREATE_FAIL_NOT_ENOUGH_MEMORY;
+    }
 
-  new_pcb->context.eflags |= CPU_EFLAGS_BASE_FLAG | CPU_EFLAGS_FLAG_INTERRUPT_ENABLE;
-  new_pcb->context.cpu.segment.ds = GDT_USER_DATA_SEGMENT_SELECTOR;
-  new_pcb->context.cpu.segment.es = GDT_USER_DATA_SEGMENT_SELECTOR;
-  new_pcb->context.cpu.segment.fs = GDT_USER_DATA_SEGMENT_SELECTOR;
-  new_pcb->context.cpu.segment.gs = GDT_USER_DATA_SEGMENT_SELECTOR;
-  new_pcb->context.cpu.stack.esp = 0x400000;
-  new_pcb->metadata.pid = process_generate_new_pid();
-  new_pcb->metadata.active = true;
-  new_pcb->metadata.cur_state = READY;
-  process_manager_state.active_process_count++;
-exit_cleanup:
-  return retcode;
+    // Switch to new page directory
+    paging_use_page_directory(new_pcb->context.page_directory_virtual_addr);
+
+    // Allocate and map memory pages
+    for (uint32_t i = 0; i < page_frame_count_needed; i++)
+    {
+        void *virtual_addr = request.buf + i * PAGE_FRAME_SIZE;
+        new_pcb->memory.virtual_addr_used[i] = virtual_addr;
+        
+        // CRITICAL: Ensure page allocation succeeds
+        if (!paging_allocate_user_page_frame(new_pcb->context.page_directory_virtual_addr, virtual_addr)) {
+            // Allocation failed, cleanup
+            for (uint32_t j = 0; j < i; j++) {
+                paging_free_user_page_frame(new_pcb->context.page_directory_virtual_addr, new_pcb->memory.virtual_addr_used[j]);
+            }
+            paging_use_page_directory(cur_active);
+            return PROCESS_CREATE_FAIL_NOT_ENOUGH_MEMORY;
+        }
+    }
+    new_pcb->memory.page_frame_used_count = page_frame_count_needed;
+
+    // Load program into allocated memory
+    read(request);
+
+    // CRITICAL: Set entry point to shell buffer address
+    new_pcb->context.eip = (uint32_t)request.buf;  // Should be 0x400000, not 0x0
+    
+    // Switch back to kernel page directory
+    paging_use_page_directory(cur_active);
+
+    // Setup process context
+    new_pcb->context.eflags |= CPU_EFLAGS_BASE_FLAG | CPU_EFLAGS_FLAG_INTERRUPT_ENABLE;
+    new_pcb->context.cpu.segment.ds = GDT_USER_DATA_SEGMENT_SELECTOR;
+    new_pcb->context.cpu.segment.es = GDT_USER_DATA_SEGMENT_SELECTOR;
+    new_pcb->context.cpu.segment.fs = GDT_USER_DATA_SEGMENT_SELECTOR;
+    new_pcb->context.cpu.segment.gs = GDT_USER_DATA_SEGMENT_SELECTOR;
+    
+    new_pcb->metadata.pid = process_generate_new_pid();
+    new_pcb->metadata.active = true;
+    new_pcb->metadata.cur_state = READY;
+    process_manager_state.active_process_count++;
+
+    return PROCESS_CREATE_SUCCESS;
 }
 
 struct ProcessControlBlock *process_get_current_running_pcb_pointer(void)

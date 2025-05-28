@@ -19,8 +19,11 @@
 // #define INODES_PER_GROUP (INODES_PER_TABLE * INODES_TABLE_BLOCK_COUNT) // number of inodes per group
 #define GROUPS_COUNT 1
 #define INODES_PER_GROUP 32
-#define BLOCKS_PER_GROUP 1024
+#ifndef BLOCK_SIZE
+#define BLOCK_SIZE 512  // Ensure this is 512, not 1024
+#endif
 #define INODES_TABLE_BLOCK_COUNT 4
+#define BLOCKS_PER_GROUP 512
 
 /**
  * inodes constant

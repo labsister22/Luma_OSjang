@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
                 read_inode(shell_inode_idx, &shell_inode);
                 uint32_t block = shell_inode.i_block[0];
                 printf("Blok pertama shell: %u\n", block);
-                uint8_t *block_ptr = image_storage + block * 1024;
+                uint8_t *block_ptr = image_storage + block * BLOCK_SIZE;
                 printf("[DEBUG] 16 byte pertama blok shell di storage: ");
                 for (int i = 0; i < 16; i++) printf("%02X ", block_ptr[i]);
                 printf("\n");

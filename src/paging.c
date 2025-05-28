@@ -9,17 +9,17 @@
 
 __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_directory = {
     .table = {
-        [0] = {
+        [0] = { // Ini identity map untuk 0x0 - 0x3FFFFF
             .flag.present_bit = 1,
             .flag.write_bit = 1,
             .flag.use_pagesize_4_mb = 1,
-            .lower_address = 0,
+            .lower_address = 0, // Alamat fisik 0x00000000
         },
-        [0x300] = {
+        [0x300] = { // Ini memetakan 0x0 - 0x3FFFFF ke 0xC0000000 - 0xC03FFFFF
             .flag.present_bit = 1,
             .flag.write_bit = 1,
             .flag.use_pagesize_4_mb = 1,
-            .lower_address = 0,
+            .lower_address = 0, // Alamat fisik 0x00000000
         },
     }};
 
