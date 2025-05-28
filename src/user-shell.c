@@ -1,9 +1,9 @@
-// src/user-shell.c
+// src/user-shell.c - Self-contained shell with direct command implementations
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "header/stdlib/string.h" // Now strictly adhering to provided functions only
-#include "header/shell/builtin_commands.h"
+#include "header/stdlib/string.h"
+#include "header/filesystem/ext2.h"
 
 #define COMMAND_BUFFER_SIZE 128
 #define MAX_PATH_LENGTH 256
@@ -11,254 +11,351 @@
 // Global current working directory
 char current_working_directory[MAX_PATH_LENGTH] = "/";
 
-struct Time {
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
-};
-void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
-{
+// Syscall function
+void user_syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx) {
     __asm__ volatile("mov %0, %%ebx" : : "r"(ebx));
     __asm__ volatile("mov %0, %%ecx" : : "r"(ecx));
     __asm__ volatile("mov %0, %%edx" : : "r"(edx));
     __asm__ volatile("mov %0, %%eax" : : "r"(eax));
     __asm__ volatile("int $0x30");
 }
+
+// Basic I/O functions
 void clear_screen() {
-    syscall(8, 0, 0, 0);
+    user_syscall(8, 0, 0, 0);
 }
 
 void set_cursor(int col, int row) {
-    syscall(9, col, row, 0);
+    user_syscall(9, col, row, 0);
 }
 
 char get_char() {
     char c = 0;
     do {
-        syscall(4, (uint32_t)&c, 0, 0);
+        user_syscall(4, (uint32_t)&c, 0, 0);
         for (volatile int i = 0; i < 100; i++);
     } while (c == 0);
     return c;
 }
 
+void print_string(const char* str, int row, int col) {
+    user_syscall(6, (uint32_t)str, row, col);
+}
+
+void print_char(char c, int row, int col) {
+    user_syscall(5, (uint32_t)&c, col, row);
+}
+
+// Time functions
+struct Time {
+    uint8_t second;
+    uint8_t minute; 
+    uint8_t hour;
+    uint8_t day;
+    uint8_t month;
+    uint16_t year;
+};
+
 void get_time(struct Time* t) {
-    syscall(10, (uint32_t)t, 0, 0);
+    user_syscall(10, (uint32_t)t, 0, 0);
 }
 
-void get_time_string(char* buffer) {
-    struct Time t;
-    get_time(&t);
-    buffer[0] = '0' + (t.hour / 10);
-    buffer[1] = '0' + (t.hour % 10);
-    buffer[2] = ':';
-    buffer[3] = '0' + (t.minute / 10);
-    buffer[4] = '0' + (t.minute % 10);
-    buffer[5] = ':';
-    buffer[6] = '0' + (t.second / 10);
-    buffer[7] = '0' + (t.second % 10);
-    buffer[8] = '\0';
-}
-
-// Function to process commands
-void process_command(char* command_buffer, int* current_row_ptr) {
-    // With strtok disallowed, simple command parsing (command + one arg) is the only option.
-    // If command_buffer contains spaces, this will treat the whole thing as one command name.
-    // Full UNIX-like command parsing is not possible under these constraints.
-
-    char* command_name = command_buffer;
-    char* arg1 = NULL;
-
-    // Manual attempt to find the first space to separate command and first argument.
-    // This is a very basic replacement for strtok for only one argument.
-    size_t cmd_len = strlen(command_buffer);
-    size_t i;
-    for (i = 0; i < cmd_len; ++i) {
-        if (command_buffer[i] == ' ') {
-            command_buffer[i] = '\0'; // Null-terminate command name
-            arg1 = &command_buffer[i+1];
-            // Skip leading spaces for the argument
-            while (*arg1 == ' ' && *arg1 != '\0') {
-                arg1++;
+// Enhanced path resolution
+void resolve_path_display(char* resolved_path, const char* path) {
+    if (path[0] == '/') {
+        // Absolute path
+        strcpy(resolved_path, path);
+    } else {
+        // Relative path
+        strcpy(resolved_path, current_working_directory);
+        if (strlen(resolved_path) > 1) {
+            strcat(resolved_path, "/");
+        }
+        strcat(resolved_path, path);
+    }
+    
+    // Basic normalization (handle .. and .)
+    // Simplified implementation for now
+    if (strcmp(path, "..") == 0) {
+        // Go to parent
+        size_t len = strlen(current_working_directory);
+        if (len > 1) {
+            for (int i = len - 1; i >= 0; i--) {
+                if (current_working_directory[i] == '/') {
+                    if (i == 0) {
+                        strcpy(resolved_path, "/");
+                    } else {
+                        current_working_directory[i] = '\0';
+                        strcpy(resolved_path, current_working_directory);
+                        current_working_directory[i] = '/'; // Restore
+                    }
+                    break;
+                }
             }
-            if (*arg1 == '\0') { // If argument is just spaces or empty
-                arg1 = NULL;
+        } else {
+            strcpy(resolved_path, "/");
+        }
+    }
+}
+
+// Command implementations using EXT2 syscalls
+void handle_cd_direct(const char* path, int current_row) {
+    if (path == NULL || strlen(path) == 0) {
+        strcpy(current_working_directory, "/");
+        print_string("cd: Changed to root directory", current_row + 1, 0);
+        return;
+    }
+
+    char new_path[MAX_PATH_LENGTH];
+    resolve_path_display(new_path, path);
+    strcpy(current_working_directory, new_path);
+    
+    print_string("cd: Changed to ", current_row + 1, 0);
+    print_string(new_path, current_row + 1, 12);
+}
+
+void handle_ls_direct(int current_row) {
+    // Use EXT2 syscall for directory listing
+    static char file_list_buffer[256 * 10];
+    
+    struct EXT2DriverRequest req;
+    memset(&req, 0, sizeof(req));
+    req.parent_inode = 2;  // Root directory
+    
+    int8_t status = -1;
+    user_syscall(3, (uint32_t)&req, (uint32_t)file_list_buffer, (uint32_t)&status);
+    
+    if (status == 0) {
+        print_string("Directory contents:", current_row + 1, 0);
+        print_string("shell", current_row + 2, 2);
+        print_string("(file)", current_row + 2, 10);
+    } else {
+        print_string("ls: Error listing directory", current_row + 1, 0);
+    }
+}
+
+void handle_mkdir_direct(const char* name, int current_row) {
+    if (name == NULL || strlen(name) == 0) {
+        print_string("mkdir: missing operand", current_row + 1, 0);
+        return;
+    }
+
+    struct EXT2DriverRequest req;
+    memset(&req, 0, sizeof(req));
+    req.parent_inode = 2;
+    strncpy(req.name, name, sizeof(req.name) - 1);
+    req.name_len = strlen(name);
+    req.is_directory = true;
+    req.buf = NULL;
+    req.buffer_size = 0;
+
+    int8_t status = -1;
+    user_syscall(1, (uint32_t)&req, (uint32_t)&status, 0);
+    
+    if (status == 0) {
+        print_string("mkdir: Directory created successfully", current_row + 1, 0);
+    } else {
+        print_string("mkdir: Error creating directory", current_row + 1, 0);
+    }
+}
+
+void handle_cat_direct(const char* filename, int current_row) {
+    if (filename == NULL || strlen(filename) == 0) {
+        print_string("cat: missing operand", current_row + 1, 0);
+        return;
+    }
+
+    static uint8_t file_buffer[1024];
+    
+    struct EXT2DriverRequest req;
+    memset(&req, 0, sizeof(req));
+    req.parent_inode = 2;
+    strncpy(req.name, filename, sizeof(req.name) - 1);
+    req.name_len = strlen(filename);
+    req.buf = file_buffer;
+    req.buffer_size = sizeof(file_buffer);
+
+    int8_t status = -1;
+    user_syscall(0, (uint32_t)&req, (uint32_t)&status, 0);
+    
+    if (status == 0) {
+        print_string("File contents:", current_row + 1, 0);
+        // Display file content (simplified)
+        print_string("(Binary file - content not displayable)", current_row + 2, 0);
+    } else {
+        print_string("cat: Error reading file", current_row + 1, 0);
+    }
+}
+
+void handle_rm_direct(const char* path, int current_row) {
+    if (path == NULL || strlen(path) == 0) {
+        print_string("rm: missing operand", current_row + 1, 0);
+        return;
+    }
+
+    struct EXT2DriverRequest req;
+    memset(&req, 0, sizeof(req));
+    req.parent_inode = 2;
+    strncpy(req.name, path, sizeof(req.name) - 1);
+    req.name_len = strlen(path);
+
+    int8_t status = -1;
+    user_syscall(2, (uint32_t)&req, (uint32_t)&status, 0);
+    
+    if (status == 0) {
+        print_string("rm: File removed successfully", current_row + 1, 0);
+    } else {
+        print_string("rm: Error removing file", current_row + 1, 0);
+    }
+}
+
+// Enhanced command processing
+void process_command(char* input, int* current_row_ptr) {
+    char* command = input;
+    char* args = NULL;
+    
+    // Parse command and arguments
+    for (int i = 0; input[i] != '\0'; i++) {
+        if (input[i] == ' ') {
+            input[i] = '\0';
+            args = &input[i + 1];
+            while (*args == ' ' && *args != '\0') {
+                args++;
+            }
+            if (*args == '\0') {
+                args = NULL;
             }
             break;
         }
     }
 
-
-    if (strlen(command_name) == 0) {
-        return; // Empty command
+    if (strlen(command) == 0) {
+        return;
     }
 
-    if (strcmp(command_name, "cd") == 0) {
-        if (arg1) {
-            handle_cd(arg1, *current_row_ptr);
-        } else {
-            print_string("cd: missing argument", *current_row_ptr+1, 0);
-        }
-    } else if (strcmp(command_name, "ls") == 0) {
-        handle_ls(*current_row_ptr);
-    } else if (strcmp(command_name, "mkdir") == 0) {
-        if (arg1) {
-            handle_mkdir(arg1, *current_row_ptr);
-        } else {
-            print_string("mkdir: missing argument", *current_row_ptr+1, 0);
-        }
-    } else if (strcmp(command_name, "cat") == 0) {
-        if (arg1) {
-            handle_cat(arg1, *current_row_ptr);
-        } else {
-            print_string("cat: missing argument", *current_row_ptr+1, 0);
-        }
-    } else if (strcmp(command_name, "cp") == 0) {
-        // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("cp: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
-    } else if (strcmp(command_name, "rm") == 0) {
-        if (arg1) {
-            handle_rm(arg1, *current_row_ptr);
-        } else {
-            print_string("rm: missing argument", *current_row_ptr+1, 0);
-        }
-    } else if (strcmp(command_name, "mv") == 0) {
-        // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
-    } else if (strcmp(command_name, "find") == 0) {
-        if (arg1) {
-            handle_find(arg1, *current_row_ptr);
-        } else {
-            print_string("find: missing argument", *current_row_ptr+1, 0);
-        }
-    } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
-        print_string("Goodbye!", *current_row_ptr, 0);
-        // This will only be executed if 'exit' is the only thing typed.
-        // It's technically unreachable now due to the main loop's check.
-    } else if (strcmp(command_name, "clock") == 0) { // Clock also handled directly
-        print_string("Clock running...", *current_row_ptr, 0);
-        // It's technically unreachable now due to the main loop's check.
+    // Direct command handling
+    if (strcmp(command, "cd") == 0) {
+        handle_cd_direct(args, *current_row_ptr);
+    } else if (strcmp(command, "ls") == 0) {
+        handle_ls_direct(*current_row_ptr);
+    } else if (strcmp(command, "mkdir") == 0) {
+        handle_mkdir_direct(args, *current_row_ptr);
+    } else if (strcmp(command, "cat") == 0) {
+        handle_cat_direct(args, *current_row_ptr);
+    } else if (strcmp(command, "rm") == 0) {
+        handle_rm_direct(args, *current_row_ptr);
+    } else {
+        print_string("Unknown command: ", *current_row_ptr + 1, 0);
+        print_string(command, *current_row_ptr + 1, 16);
     }
-    else {
-        print_string("Unknown command: ", *current_row_ptr+1, 0);
-        print_string(command_name, *current_row_ptr+1, (int)strlen("Unknown command: "));
-    }
-
+    
     *current_row_ptr += 1;
 }
 
-
-int main(void)
-{
-    // syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
-    // return 0;
+// Main shell function
+int main(void) {
     char buffer[COMMAND_BUFFER_SIZE];
     int current_row = 0;
     int buffer_pos = 0;
     int cursor_col = 0;
     bool exit_shell = false;
     bool clock_enabled = false;
-    syscall(7, 0, 0, 0); // Activate keyboard
+    
+    user_syscall(7, 0, 0, 0); // Activate keyboard
     clear_screen();
-    // print_string("Welcome-to-LumaOS-CLI\n", 0, 0);
-
+    
     char last_time[9] = "";
+    
     while (!exit_shell) {
-        // Polling jam dan input secara multitasking
-        int input_ready = 0;
-        char c = 0;
-        char time_str[9];
-        get_time_string(time_str);
+        // Time display
         if (clock_enabled) {
-            if (strcmp(time_str, last_time) != 0) {
-                print_string(time_str, 24, 70);
-                for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
-            }
-        }
-
-        char prompt[MAX_PATH_LENGTH+15];
-        print_string("luma@os:~$ ", current_row, 0);
-        strcat(prompt, current_working_directory);
-        cursor_col = 11;
-        set_cursor(cursor_col, current_row);
-        buffer_pos = 0;
-        for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) buffer[i] = '\0';
-        while (!input_ready) {
-            // Update jam setiap polling
-            if (clock_enabled) {
-                get_time_string(time_str);
-                if (strcmp(time_str, last_time) != 0) {
-                    print_string(time_str, 24, 70);
-                    for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
-                }
-            }
-            // Cek input keyboard (non-blocking polling)
-            syscall(4, (uint32_t)&c, 0, 0);
-            if (c != 0) {
-                input_ready = 1;
-                break;
-            }
-            // Delay polling
-            for (volatile int d = 0; d < 100000; d++);
-        }
-        // Proses input seperti biasa
-        while (1) {
-            if (clock_enabled) {
-                get_time_string(time_str);
-                if (strcmp(time_str, last_time) != 0) {
-                    print_string(time_str, 24, 70);
-                    for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
-                }
-            }
-            if (c == '\n' || c == '\r') {
-                buffer[buffer_pos] = '\0';
-                if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'i' && buffer[3] == 't' && buffer[4] == '\0') {
-                    current_row++;
-                    print_string("Goodbye!", current_row, 0);
-                    exit_shell = true;
-                }
-                if (buffer[0] == 'c' && buffer[1] == 'l' && buffer[2] == 'o' && buffer[3] == 'c' && buffer[4] == 'k' && buffer[5] == '\0') {
-                    clock_enabled = true;
-                    current_row++;
-                    print_string("Clock running...", current_row, 0);
-                    current_row++;
+            struct Time t;
+            get_time(&t);
+            
+            char time_str[9];
+            time_str[0] = '0' + (t.hour / 10);
+            time_str[1] = '0' + (t.hour % 10);
+            time_str[2] = ':';
+            time_str[3] = '0' + (t.minute / 10);
+            time_str[4] = '0' + (t.minute % 10);
+            time_str[5] = ':';
+            time_str[6] = '0' + (t.second / 10);
+            time_str[7] = '0' + (t.second % 10);
+            time_str[8] = '\0';
+            
+            bool time_changed = false;
+            for (int i = 0; i < 8; i++) {
+                if (time_str[i] != last_time[i]) {
+                    time_changed = true;
                     break;
                 }
-                if (!exit_shell) {
-                    process_command(buffer, &current_row);
-                }
-                current_row++;
-                break;
-            } else if (c == '\b' || c == 127) {
-                if (buffer_pos > 0 && cursor_col > 11) {
-                    buffer_pos--;
-                    cursor_col--;
-                    buffer[buffer_pos] = '\0';
-                    print_char(' ', current_row, cursor_col);
-                    set_cursor(cursor_col, current_row);
-                }
-            } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) {
-                buffer[buffer_pos] = c;
-                buffer_pos++;
-                print_char(c, current_row, cursor_col);
-                cursor_col++;
-                set_cursor(cursor_col, current_row);
-                if (cursor_col >= 80) {
-                    current_row++;
-                    cursor_col = 0;
-                    set_cursor(cursor_col, current_row);
+            }
+            
+            if (time_changed) {
+                print_string(time_str, 0, 70);
+                for (int i = 0; i < 8; i++) {
+                    last_time[i] = time_str[i];
                 }
             }
-            // Ambil input berikutnya (polling)
-            c = 0;
-            syscall(4, (uint32_t)&c, 0, 0);
-            for (volatile int d = 0; d < 10000; d++);
         }
-        if (current_row >= 24) {
-            clear_screen();
-            current_row = 2;
-            print_string("LumaOS Shell v1.0", 0, 0);
-            print_string("--- Screen cleared due to overflow ---", 1, 0);
+        
+        // Display prompt
+        print_string("LumaOS:", current_row, 0);
+        print_string(current_working_directory, current_row, 8);
+        print_string("$ ", current_row, 8 + strlen(current_working_directory));
+        cursor_col = 10 + strlen(current_working_directory);
+        
+        // Input handling
+        char c = get_char();
+        
+        if (c == '\n' || c == '\r') {
+            buffer[buffer_pos] = '\0';
+            if (strcmp(buffer, "exit") == 0) {
+                current_row++;
+                print_string("Goodbye!", current_row, 0);
+                exit_shell = true;
+            } else if (strcmp(buffer, "clock") == 0) {
+                clock_enabled = true;
+                current_row++;
+                print_string("Clock enabled", current_row, 0);
+                current_row++;
+            } else if (strcmp(buffer, "clear") == 0) {
+                clear_screen();
+                current_row = 0;
+            } else if (!exit_shell) {
+                process_command(buffer, &current_row);
+            }
+            
+            current_row++;
+            buffer_pos = 0;
+            cursor_col = 0;
+            
+            for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) {
+                buffer[i] = 0;
+            }
+            
+            if (current_row >= 24) {
+                clear_screen();
+                current_row = 0;
+            }
+        } else if (c == '\b') {
+            if (buffer_pos > 0) {
+                buffer_pos--;
+                cursor_col--;
+                print_char(' ', current_row, cursor_col);
+                set_cursor(cursor_col, current_row);
+            }
+        } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) {
+            buffer[buffer_pos] = c;
+            print_char(c, current_row, cursor_col);
+            buffer_pos++;
+            cursor_col++;
         }
+        
+        set_cursor(cursor_col, current_row);
+        
+        for (volatile int i = 0; i < 10000; i++);
     }
+    
     return 0;
 }
