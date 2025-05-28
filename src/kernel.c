@@ -25,8 +25,13 @@ void kernel_setup(void)
     framebuffer_clear();
     framebuffer_set_cursor(0, 0);
 
+    // Gunakan fungsi print_string dari kernel jika ada, atau framebuffer_write langsung
+    // Contoh menggunakan framebuffer_write langsung untuk debugging kernel
+    for (int i = 0; i < 15; i++) print_str("Kernel Booting...",i,0,0xF);
+
     // 2. Inisialisasi sistem file EXT2
     initialize_filesystem_ext2();
+    for (int i = 0; i < 20; i++) print_str("EXT2 Initialized...",i,0,0xF);
 
     // 3. Inisialisasi TSS untuk multi-tasking (user mode)
     gdt_install_tss();
@@ -47,6 +52,7 @@ void kernel_setup(void)
     // Catatan: Syscall read di interrupt.c Anda saat ini tidak mengembalikan status sukses/gagal.
     // Jika ada masalah pemuatan, Anda mungkin tidak melihatnya secara langsung di sini.
     read(request);
+    for (int i = 0; i < 15; i++) print_str("Shell Loaded...",i,0,0xF);
 
     // Set TSS $esp pointer and jump into shell
     set_tss_kernel_current_stack();

@@ -12,6 +12,7 @@
         "stdint.h": "c",
         "paging.h": "c",
         "process.h": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "file_operations.h": "c"
     },
 }

@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include "header/stdlib/string.h"
 
-extern char current_working_directory[256]; // Assuming MAX_PATH_LENGTH from user-shell.c
+extern char current_working_directory[32]; // Assuming MAX_PATH_LENGTH from user-shell.c
 extern void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx);
 // Function prototypes for built-in commands
 void handle_cd(const char* path, int current_row);

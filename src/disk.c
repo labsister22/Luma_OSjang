@@ -30,9 +30,7 @@ void read_blocks(void *ptr, uint32_t logical_block_address, uint8_t block_count)
 }
 
 void write_blocks(const void *ptr, uint32_t logical_block_address, uint8_t block_count) {
-    framebuffer_write(0, 0, 'L', 0xF, 0x0);
     ATA_busy_wait();
-    framebuffer_write(0, 0, 'L', 0xF, 0x0);
     out(0x1F6, 0xE0 | ((logical_block_address >> 24) & 0xF));
     out(0x1F2, block_count);
     out(0x1F3, (uint8_t) logical_block_address);
@@ -43,7 +41,6 @@ void write_blocks(const void *ptr, uint32_t logical_block_address, uint8_t block
     for (uint32_t i = 0; i < block_count; i++) {
         ATA_busy_wait();
         ATA_DRQ_wait();
-        framebuffer_write(0, 0, 'L', 0xF, 0x0);
         for (uint32_t j = 0; j < HALF_BLOCK_SIZE; j++) {
             out16(0x1F0, ((uint16_t*) ptr)[i * HALF_BLOCK_SIZE + j]);
         }

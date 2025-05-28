@@ -64,26 +64,60 @@ int strcmp(const char *s1, const char *s2) {
     }
     return *(const unsigned char *)s1 - *(const unsigned char *)s2;
 }
-int strncmp(const char *s1, const char *s2, size_t n) {
-    while (n && *s1 && (*s1 == *s2)) {
-        ++s1; ++s2; --n;
-    }
-    return n ? *(unsigned char *)s1 - *(unsigned char *)s2 : 0;
-}
-char *strcat(char *dest, const char *src) {
-    char *original_dest = dest;
-    while (*dest != '\0') {
-        dest++;
-    }
-    while ((*dest++ = *src++) != '\0');
-    return original_dest;
-}
 char *strcpy(char *dest, const char *src) {
+  char *d = dest;
+  while ((*d++ = *src++));
+  return dest;
+}
 
-    char *original_dest = dest;
+char *strcat(char *dest, const char *src) {
+    char *rdest = dest;
+    while (*dest)
+        dest++;
+    while ((*dest++ = *src++))
+        ;
+    return rdest;
+}
 
-    while ((*dest++ = *src++) != '\0');
+char *strchr(const char *s, int c) {
+    while (*s != (char)c) {
+        if (!*s++) {
+            return NULL;
+        }
+    }
+    return (char *)s;
+}
 
-    return original_dest;
+char *strrchr(const char *s, int c) {
+    const char *last = NULL;
+    while (*s != '\0') {
+        if (*s == (char)c) {
+            last = s;
+        }
+        s++;
+    }
+    // Check if the null terminator itself is the character being searched for
+    if (*s == (char)c && c == '\0') {
+        last = s;
+    }
+    return (char *)last;
+}
 
+char *strncpy(char *dest, const char *src, size_t n) {
+    char *d = dest;
+    while (n-- > 0 && (*d++ = *src++));
+    while (n-- > 0) {
+        *d++ = '\0';
+    }
+    return dest;
+}
+
+char *strncat(char *dest, const char *src, size_t n) {
+    char *d = dest;
+    while (*d != '\0') {
+        d++;
+    }
+    while (n-- > 0 && (*d++ = *src++));
+    *d = '\0'; // Pastikan null-terminated
+    return dest;
 }

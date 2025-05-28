@@ -11,10 +11,13 @@ ISO_NAME      = OS2025
 
 # Flags
 WARNING_CFLAG = -Wall -Wextra -Werror
-DEBUG_CFLAG   = -fshort-wchar -g
+# DEBUG_CFLAG   = -fshort-wchar -g
 STRIP_CFLAG   = -nostdlib -fno-stack-protector -nostartfiles -nodefaultlibs -ffreestanding
 CFLAGS = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -Iheader -g -gdwarf-2
 AFLAGS = -f elf32 -g -F dwarf
+CFLAGS_SHELL = $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -Iheader -Os -fno-pie # -Os untuk optimasi ukuran
+# AFLAGS khusus untuk User-Shell (tanpa debugging)
+AFLAGS_SHELL = -f elf32 # Hapus -g -F dwarf dari AFLAGS_SHELL
 LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 DISK_NAME     = storage
 
@@ -70,22 +73,23 @@ inserter:
 	@mkdir -p $(OUTPUT_FOLDER)
 	@$(CC) -Wno-builtin-declaration-mismatch -g -I$(SOURCE_FOLDER) \
         -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
-        $(SOURCE_FOLDER)/string.c \
+        $(SOURCE_FOLDER)/stdlib/string.c \
         $(SOURCE_FOLDER)/ext2.c \
         $(SOURCE_FOLDER)/external-inserter.c \
         -o $(OUTPUT_FOLDER)/inserter \
         -DDEBUG_MODE
 
 user-shell:
-	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/crt0.s -o crt0.o
-	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/user-shell.c -o user-shell.o
-	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/builtin_commands.c -o builtin_commands.o
-	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/stdlib/string.c -o string.o
+	@$(ASM) $(AFLAGS_SHELL) $(SOURCE_FOLDER)/crt0.s -o crt0.o
+	@$(CC)  $(CFLAGS_SHELL) $(SOURCE_FOLDER)/user-shell.c -o user-shell.o
+	# @$(CC)  $(CFLAGS_SHELL) $(SOURCE_FOLDER)/builtin_commands.c -o builtin_commands.o
+	@$(CC)  $(CFLAGS_SHELL) $(SOURCE_FOLDER)/stdlib/string.c -o string.o
+	# @$(CC)  $(CFLAGS_SHELL) $(SOURCE_FOLDER)/file_operations.c -o file_operations.o
 	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=binary \
-		crt0.o user-shell.o builtin_commands.o string.o -o $(OUTPUT_FOLDER)/shell
+		crt0.o user-shell.o string.o -o $(OUTPUT_FOLDER)/shell
 	@echo Linking object shell object files and generate flat binary...
 	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=elf32-i386 \
-		crt0.o user-shell.o builtin_commands.o string.o -o $(OUTPUT_FOLDER)/shell_elf
+		crt0.o user-shell.o string.o -o $(OUTPUT_FOLDER)/shell_elf
 	@echo Linking object shell object files and generate ELF32 for debugging...
 	@size --target=binary $(OUTPUT_FOLDER)/shell
 	@rm -f *.o
@@ -143,7 +147,7 @@ $(OUTPUT_FOLDER)/ext2.o: $(SOURCE_FOLDER)/ext2.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Compile string (C)
-$(OUTPUT_FOLDER)/string.o: $(SOURCE_FOLDER)/string.c
+$(OUTPUT_FOLDER)/string.o: $(SOURCE_FOLDER)/stdlib/string.c
 	$(CC) $(CFLAGS) $< -o $@
 
 # Compile test_ext2 (C)
