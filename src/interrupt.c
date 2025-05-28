@@ -203,11 +203,59 @@ void syscall(struct InterruptFrame frame)
           out->minute = t.minute;
           out->second = t.second;
       }
-      break;
-
-  default:
-    // Unknown system call
     break;
+  case 23:{
+    uint8_t* buffer = (uint8_t*) frame.cpu.general.ebx;
+    uint32_t block_num = frame.cpu.general.ecx;
+    uint32_t count = frame.cpu.general.edx;
+    read_blocks(buffer, block_num, count); // Pastikan fungsi ini ada
+    break;
+  }
+  case 24: // SYS_READ_DIRECTORY
+  {
+    struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+    request->buf = (void *)frame.cpu.general.ecx; // Buffer untuk hasil baca direktori
+    *((int8_t *)frame.cpu.general.edx) = read_directory(request); // Hasil baca disimpan di edx
+  }
+  break;
+
+  case 25: // SYS_CREATE_DIRECTORY
+      *((int8_t *)frame.cpu.general.ecx) = write(
+          *(struct EXT2DriverRequest *)frame.cpu.general.ebx);
+      break;
+  case 26: // SYS_READ_FILE
+      *((int8_t *)frame.cpu.general.ecx) = read(
+          *(struct EXT2DriverRequest *)frame.cpu.general.ebx);
+      break;
+  case 27: // SYS_COPY_FILE
+      *((int8_t *)frame.cpu.general.ecx) = write(
+          *(struct EXT2DriverRequest *)frame.cpu.general.ebx); // Assuming write can handle copy for simplicity
+      break;
+  case 28: // SYS_DELETE_FILE
+      *((int8_t *)frame.cpu.general.ecx) = delete(
+          *(struct EXT2DriverRequest *)frame.cpu.general.ebx);
+      break;
+  case 29: // SYS_MOVE_FILE
+      *((int8_t *)frame.cpu.general.ecx) = delete(
+          *(struct EXT2DriverRequest *)frame.cpu.general.ebx); // Assuming delete and write for move
+      break;
+  case 30: // SYS_FIND_FILE
+      // Implement find logic here - might need a different approach
+      *((int8_t *)frame.cpu.general.ecx) = -1; // Placeholder
+      break;
+  case 21: // SYS_READ_INODE
+  {
+      struct EXT2Inode* out_inode = (struct EXT2Inode*) frame.cpu.general.ebx;
+      uint32_t inode_idx = frame.cpu.general.ecx;
+      read_inode(inode_idx, out_inode); // Pastikan ada fungsi read_inode di ext2.c
+      break;
+  }
+  // case 23: // SYS_READ_BLOCK
+  //     read_blocks((void*)frame.cpu.general.ebx, frame.cpu.general.ecx, (uint8_t)frame.cpu.general.edx);
+  //     break;
+  default:
+      // Unknown system call
+      break;
   }
 }
 
