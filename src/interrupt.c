@@ -204,6 +204,36 @@ void syscall(struct InterruptFrame frame)
           out->second = t.second;
       }
       break;
+  case 11: // SYS_EXIT - Process termination
+  {
+    // Exit code is passed in ebx
+    uint32_t exit_code = frame.cpu.general.ebx;
+    
+    // TODO: Implement proper process termination
+    // For now, display exit message and halt
+    framebuffer_write(0, 60, 'E', 0xF, 0x0); // E for Exit
+    framebuffer_write(0, 61, 'X', 0xF, 0x0); // X
+    framebuffer_write(0, 62, 'I', 0xF, 0x0); // I
+    framebuffer_write(0, 63, 'T', 0xF, 0x0); // T
+    framebuffer_write(0, 64, ':', 0xF, 0x0); // :
+    
+    // Display exit code (simple single digit for now)
+    if (exit_code < 10) {
+      framebuffer_write(0, 65, '0' + exit_code, 0xF, 0x0);
+    } else {
+      framebuffer_write(0, 65, 'X', 0xF, 0x0); // X for non-single digit
+    }
+    
+    // In a real OS, this would:
+    // 1. Clean up process resources
+    // 2. Update process state
+    // 3. Schedule next process
+    // 4. Return to scheduler
+    
+    // For now, just halt the system
+    __asm__ volatile("cli; hlt");
+  }
+  break;
 
   default:
     // Unknown system call
