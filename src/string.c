@@ -87,3 +87,12 @@ char *strcpy(char *dest, const char *src) {
     return original_dest;
 
 }
+
+char *strncpy(char *dest, const char *src, size_t n) {
+    char *d = dest;
+    while (n-- > 0 && (*d++ = *src++));
+    while (n-- > 0) {
+        *d++ = '\0';
+    }
+    return dest;
+}

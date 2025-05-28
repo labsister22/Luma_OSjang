@@ -151,9 +151,9 @@ int8_t write(struct EXT2DriverRequest request)
   }
 
   // Batasi ukuran file untuk mencegah overflow
-  if (request.buffer_size > 20 * BLOCK_SIZE)
+  if (request.buffer_size > 42 * BLOCK_SIZE)
   {
-    DEBUG_PRINT("Error: File too large. Max size: %u bytes\n", 20 * BLOCK_SIZE);
+    DEBUG_PRINT("Error: File too large. Max size: %u bytes\n", 42 * BLOCK_SIZE);
     return -1;
   }
 

@@ -3,6 +3,7 @@
 #include "header/shell/builtin_commands.h"
 #include "header/stdlib/string.h" // Now strictly adhering to provided functions only
 #include "header/filesystem/ext2.h" // For EXT2 structures
+#include "header/shell/file_operations.h" // For file operations
 
 // No custom string functions here, relying strictly on header/stdlib/string.h
 extern char current_working_directory[256];
@@ -148,6 +149,10 @@ void handle_cd(const char* path, int current_row) {
 }
 
 void handle_ls(int current_row) {
+    // print_string("Listing:", current_row + 1, 0);
+    // // `list_directory_contents` sudah mencetak outputnya sendiri.
+    // // Argument `NULL` berarti list CWD (atau root jika CWD di kernel belum diimplementasikan).
+    // //list_directory_contents(NULL);
     // current_row++; // Pindah ke baris berikutnya untuk output pertama
     // print_string("Listing /:", current_row, 0);
     // current_row++;

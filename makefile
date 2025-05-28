@@ -169,6 +169,9 @@ $(OUTPUT_FOLDER)/cmos.o: $(SOURCE_FOLDER)/cmos.c
 $(OUTPUT_FOLDER)/builtin_commands.o: $(SOURCE_FOLDER)/builtin_commands.c
 	$(CC) $(CFLAGS) $< -o $@
 
+$(OUTPUT_FOLDER)/file_operations.o: $(SOURCE_FOLDER)/file_operations.c
+	@$(ASM) $(AFLAGS) $< -o $@
+
 # Link Semua Object Files - FIX: Use TAB instead of spaces
 $(OUTPUT_FOLDER)/kernel: $(OBJS)
 	@$(LIN) $(LFLAGS) $(OBJS) -o $@
