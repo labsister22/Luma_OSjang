@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "header/cpu/portio.h"
+extern int clock_enabled;
 
 struct Time {
     uint8_t hour;

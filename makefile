@@ -66,7 +66,7 @@ quick:
 	fi
 	@echo "🚀 Quick run (preserving all data)..."
 	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso -audiodev pa,id=snd0 -machine pcspk-audiodev=snd0
-	
+
 # Disk
 .PHONY: disk quick
 disk:
@@ -96,14 +96,15 @@ user-shell:
 	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/ext2.c -o ext2_shell.o
 	@$(CC) 	$(CFLAGS) -fno-pie $(SOURCE_FOLDER)/disk.c -o disk_shell.o
 	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/framebuffer.c -o fb_shell.o
+	@$(CC)  $(CFLAGS) -fno-pie $(SOURCE_FOLDER)/cmos.c -o cmos_shell.o
 	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=binary \
-        crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o ext2_shell.o disk_shell.o fb_shell.o -o $(OUTPUT_FOLDER)/shell
+        crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o ext2_shell.o disk_shell.o fb_shell.o cmos_shell.o -o $(OUTPUT_FOLDER)/shell
 	@echo Linking object shell object files and generate flat binary...
 	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 --oformat=elf32-i386 \
-        crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o ext2_shell.o disk_shell.o fb_shell.o -o $(OUTPUT_FOLDER)/shell_elf
+        crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o ext2_shell.o disk_shell.o fb_shell.o cmos_shell.o -o $(OUTPUT_FOLDER)/shell_elf
 	@echo Linking object shell object files and generate ELF32 for debugging...
 	@size --target=binary $(OUTPUT_FOLDER)/shell
-	@rm -f crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o ext2_shell.o disk_shell.o fb_shell.o # Specific cleanup
+	@rm -f crt0.o user-shell.o builtin_commands.o string_shell.o speaker_shell.o portio_shell.o ext2_shell.o disk_shell.o fb_shell.o cmos_shell.o # Specific cleanup
 
 insert-shell: disk inserter user-shell
 	@echo Inserting shell into root directory...

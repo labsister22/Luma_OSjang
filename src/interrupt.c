@@ -1039,6 +1039,16 @@ void syscall(struct InterruptFrame frame)
       break;
   }
 
+  case 33: // SYS_CLOCK_CONTROL - Control clock display
+    {
+      //uint32_t enable_flag = frame.cpu.general.ebx;
+      // Set global flag untuk clock display (implementasi di user-shell)
+      // Untuk sekarang, syscall ini akan di-handle di user-shell side
+      // Bisa diexpand untuk control clock display dari kernel
+      // Return status bisa ditambahkan di frame.cpu.general.eax jika perlu
+    }
+    break;
+
   default:
     // Unknown system call
     break;

@@ -8,6 +8,8 @@
 #include "header/filesystem/ext2.h"
 #include "header/process/process.h"
 #include "header/driver/speaker.h"
+#include "header/driver/cmos.h"
+extern int clock_enabled;
 
 extern char current_working_directory[256]; // Assuming MAX_PATH_LENGTH from user-shell.c
 extern void user_syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx);

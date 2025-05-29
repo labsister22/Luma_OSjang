@@ -1045,8 +1045,6 @@ void int_to_string(int value, char* str) {
     str[j] = '\0';
 }
 
-// ...existing code...
-
 void handle_exec(const char* command) {
     if (!command || strlen(command) == 0) {
         current_output_row++;
@@ -1059,28 +1057,35 @@ void handle_exec(const char* command) {
     
     // PERBAIKAN: Handle built-in commands sebagai background processes
     if (strcmp(command, "clock") == 0) {
-        // Create a fake "executable" request for clock
+        // Create clock process
         struct EXT2DriverRequest request;
         memset(&request, 0, sizeof(request));
         
-        // Set nama process
         strcpy(request.name, "clock");
         request.name_len = 5;
         request.parent_inode = current_inode;
-        
-        // Set dummy buffer untuk process (clock tidak perlu executable file)
-        request.buf = (uint8_t*)0x500000; // Different address from standard
+        request.buf = (uint8_t*)0x500000;
         request.buffer_size = PAGE_FRAME_SIZE;
         request.is_directory = 0;
         
-        // Call process creation syscall
         int32_t result;
         user_syscall(30, (uint32_t)&request, (uint32_t)&result, 0);
+        clock_enabled = 1;
         
         if (result == PROCESS_CREATE_SUCCESS) {
             print_string("Background process 'clock' started", current_output_row, 0);
+            current_output_row++;
+            print_string("Clock display enabled in shell", current_output_row, 0);
+            
+            // TAMBAHAN: Signal ke user-shell untuk enable clock
+            // Kita bisa menggunakan global variable atau simple approach
+            // Untuk sekarang, user-shell perlu check apakah ada clock process
         } else {
             print_string("exec: failed to start clock process", current_output_row, 0);
+            char error_char = '0' + (-result);
+            if (result >= -9) print_char(error_char, current_output_row, 46);
+            else print_char('?', current_output_row, 46);
+            print_string(")", current_output_row, 47);
         }
         
     } else if (strcmp(command, "beep") == 0) {
@@ -1112,6 +1117,9 @@ void handle_exec(const char* command) {
         
     } else if (strcmp(command, "shell") == 0) {
         // Try to execute actual shell executable from filesystem
+        print_string("Trying to execute shell from filesystem...", current_output_row, 0);
+        current_output_row++;
+        
         struct EXT2DriverRequest request;
         memset(&request, 0, sizeof(request));
         
@@ -1151,6 +1159,11 @@ void handle_exec(const char* command) {
         
     } else {
         // Try to execute as regular file from filesystem
+        print_string("Trying to execute '", current_output_row, 0);
+        print_string(command, current_output_row, 19);
+        print_string("' from filesystem...", current_output_row, 19 + strlen(command));
+        current_output_row++;
+        
         struct EXT2DriverRequest request;
         memset(&request, 0, sizeof(request));
         
@@ -1201,9 +1214,9 @@ void handle_exec(const char* command) {
                 print_string("'", current_output_row, 33 + strlen(command));
                 break;
             default:
-                print_string("exec: unknown command '", current_output_row, 0);
-                print_string(command, current_output_row, 24);
-                print_string("'", current_output_row, 24 + strlen(command));
+                print_string("exec: failed to execute '", current_output_row, 0);
+                print_string(command, current_output_row, 26);
+                print_string("'", current_output_row, 26 + strlen(command));
                 break;
         }
     }
@@ -1323,6 +1336,11 @@ void handle_kill(const char* pid_str) {
             strcmp(pcb_list[i].metadata.name, "beep") == 0) {
             // This is the speaker process - turn off speaker
             speaker_stop();
+        }
+        else if ((int)pcb_list[i].metadata.pid == pid && 
+            strcmp(pcb_list[i].metadata.name, "clock") == 0) {
+            // This is the clock process - turn off clock display
+            clock_enabled = 0;
         }
     }
     

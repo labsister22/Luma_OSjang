@@ -1,6 +1,8 @@
 #include "header/driver/cmos.h"
 #include "header/cpu/portio.h"
 
+
+int clock_enabled = 0;
 static uint8_t read_cmos_register(uint8_t reg) {
     out(0x70, reg);
     return in(0x71);

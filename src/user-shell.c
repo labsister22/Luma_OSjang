@@ -4,21 +4,25 @@
 #include <stdbool.h>
 #include "header/stdlib/string.h" // Now strictly adhering to provided functions only
 #include "header/shell/builtin_commands.h"
+#include "header/driver/cmos.h"
 
 #define COMMAND_BUFFER_SIZE 128
 #define MAX_PATH_LENGTH 256
-
 
 // #define BEEP_DURATION_LOOPS 500000
 
 // Global current working directory
 char current_working_directory[MAX_PATH_LENGTH] = "/";
 
-struct Time {
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
-};
+// struct Time {
+//     uint8_t hour;
+//     uint8_t minute;
+//     uint8_t second;
+// };
+void handle_clock_control_syscall() {
+    // This function akan dipanggil oleh kernel ketika syscall 33 dipanggil
+    // Untuk sekarang, kita set clock_enabled = true di handle_exec langsung
+}
 
 int simple_atoi(const char* str) {
     int res = 0;
@@ -217,7 +221,7 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         }
     } else if (strcmp(command_name, "beep") == 0) { // Tambahkan perintah beep
         print_string("Playing beep...", *current_row_ptr + 1, 0);
-        speaker_play(BEEP_FREQUENCY);
+        handle_exec("beep"); // Call beep as a background process
         // Tambahkan delay sederhana
         // for (volatile int d = 0; d < BEEP_DURATION_LOOPS; d++);
         // speaker_stop();
@@ -228,11 +232,10 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         print_string("Goodbye!", *current_row_ptr, 0);
         // This will only be executed if 'exit' is the only thing typed.
         // It's technically unreachable now due to the main loop's check.
-    } else if (strcmp(command_name, "clock") == 0) { // Clock also handled directly
-        print_string("Clock running...", *current_row_ptr, 0);
-        // It's technically unreachable now due to the main loop's check.
-    }
-    else {
+    } else if (strcmp(command_name, "clock") == 0) { 
+    // PERBAIKAN: Buat clock sebagai background process + enable display
+        handle_exec("clock");
+    } else {
         print_string("Unknown command: ", *current_row_ptr+1, 0);
         print_string(command_name, *current_row_ptr+1, (int)strlen("Unknown command: "));
     }
@@ -250,7 +253,6 @@ int main(void)
     int buffer_pos = 0;
     int cursor_col = 0;
     bool exit_shell = false;
-    bool clock_enabled = false;
     user_syscall(7, 0, 0, 0); // Activate keyboard
     speaker_init(); // Initialize speaker
     clear_screen();
