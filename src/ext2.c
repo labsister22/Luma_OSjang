@@ -234,7 +234,7 @@ uint32_t allocate_logical_block(struct EXT2Inode *inode, uint32_t logical_block_
  */
 void read_inode_data_extended(struct EXT2Inode *inode, void *buf, uint32_t size)
 {
-    if (inode == NULL || buf == NULL || size == 0)
+    if (inode == NULL || size == 0)
         return;
 
     uint32_t bytes_read = 0;
@@ -1136,7 +1136,7 @@ int8_t read(struct EXT2DriverRequest request)
     return -1;
   }
 
-  if (request.buf == NULL || request.buffer_size == 0)
+  if (request.buffer_size == 0)
   {
     DEBUG_PRINT("Error: Invalid buffer or buffer size\n");
     return -1;

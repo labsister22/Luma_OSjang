@@ -35,11 +35,6 @@ void update_page_directory_entry(
     void *virtual_addr,
     struct PageDirectoryEntryFlag flag)
 {
-  if (!page_dir || !virtual_addr)
-  {
-    return;
-  }
-
   uint32_t page_index = ((uint32_t)virtual_addr >> 22) & 0x3FF;
 
   // Physical address needs to be divided by 4MB to get the page frame number (>> 22)
@@ -81,7 +76,7 @@ bool paging_allocate_check(uint32_t amount)
 
 bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr)
 {
-  if (!page_dir)
+  if (!paging_allocate_check(1))
   {
     return false;
   }
