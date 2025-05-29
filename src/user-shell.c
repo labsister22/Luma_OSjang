@@ -214,7 +214,6 @@ int main(void)
         }
 
         char prompt[MAX_PATH_LENGTH+15];
-        int b = 0;
         print_string("luma@os:~$ ", &current_output_row, &cursor_col_for_input); // Gunakan global dan update col
         strcat(prompt, current_working_directory); // Prompt string
         // Perbaiki cursor_col_for_input setelah mencetak path
@@ -273,7 +272,7 @@ int main(void)
                     // Tidak perlu increment lagi di sini.
                     break;
             } else if (c == '\b' || c == 127) {
-                if (buffer_pos > 0 && cursor_col_for_input > 11 + strlen(current_working_directory)) { // Pastikan tidak menghapus prompt
+                if (buffer_pos > 0 && cursor_col_for_input > 11 + (int)strlen(current_working_directory)) { // Pastikan tidak menghapus prompt
                         buffer_pos--;
                         cursor_col_for_input--;
                         buffer[buffer_pos] = '\0';
