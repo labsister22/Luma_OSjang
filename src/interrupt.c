@@ -575,6 +575,315 @@ int8_t create_directory(struct EXT2DriverRequest *request) {
     
     return 0; // Success
 }
+int8_t delete_file(struct EXT2DriverRequest *request) {
+    // Validasi input parameter
+    if (!request || request->name_len == 0) {
+        return -1; // Invalid parameter
+    }
+    
+    // 1. Validasi parent directory exists dan valid
+    struct EXT2Inode parent_inode;
+    read_inode(request->parent_inode, &parent_inode);
+    
+    // Pastikan parent adalah directory
+    if (!(parent_inode.i_mode & EXT2_S_IFDIR)) {
+        return -2; // Parent is not a directory
+    }
+    
+    // 2. Cari file yang akan dihapus dalam parent directory
+    uint8_t dir_block[BLOCK_SIZE];
+    uint32_t target_inode_idx = 0;
+    uint32_t target_block_idx = 0;
+    uint32_t target_entry_offset = 0;
+    bool file_found = false;
+    
+    // Periksa setiap block dari parent directory
+    for (uint32_t block_idx = 0; block_idx < parent_inode.i_blocks && block_idx < 12; block_idx++) {
+        if (parent_inode.i_block[block_idx] == 0) continue;
+        
+        read_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+        
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            // Bandingkan nama
+            char *entry_name = (char *)(entry + 1);
+            if (entry->name_len == request->name_len) {
+                bool names_match = true;
+                for (uint8_t i = 0; i < entry->name_len; i++) {
+                    if (entry_name[i] != request->name[i]) {
+                        names_match = false;
+                        break;
+                    }
+                }
+                if (names_match) {
+                    // Pastikan ini adalah file, bukan directory
+                    if (entry->file_type == EXT2_FT_DIR) {
+                        return -6; // Target is a directory, not a file
+                    }
+                    
+                    target_inode_idx = entry->inode;
+                    target_block_idx = block_idx;
+                    target_entry_offset = offset;
+                    file_found = true;
+                    break;
+                }
+            }
+            
+            offset += entry->rec_len;
+        }
+        
+        if (file_found) break;
+    }
+    
+    if (!file_found) {
+        return -3; // File not found
+    }
+    
+    // 3. Baca inode file yang akan dihapus
+    struct EXT2Inode file_inode;
+    read_inode(target_inode_idx, &file_inode);
+    
+    // 4. Dealokasi semua block yang digunakan oleh file
+    for (uint32_t i = 0; i < file_inode.i_blocks && i < 12; i++) {
+        if (file_inode.i_block[i] != 0) {
+            deallocate_block(file_inode.i_block[i]);
+        }
+    }
+    
+    // 5. Dealokasi inode
+    clear_inode_used(target_inode_idx);
+    
+    // 6. Hapus entry dari parent directory
+    read_blocks(dir_block, parent_inode.i_block[target_block_idx], 1);
+    
+    struct EXT2DirectoryEntry *target_entry = (struct EXT2DirectoryEntry *)(dir_block + target_entry_offset);
+    uint16_t entry_rec_len = target_entry->rec_len;
+    
+    // Cari entry sebelumnya untuk menggabungkan rec_len
+    if (target_entry_offset > 0) {
+        // Ada entry sebelumnya, gabungkan rec_len
+        uint32_t prev_offset = 0;
+        struct EXT2DirectoryEntry *prev_entry = NULL;
+        
+        while (prev_offset < target_entry_offset) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + prev_offset);
+            if (prev_offset + entry->rec_len == target_entry_offset) {
+                prev_entry = entry;
+                break;
+            }
+            prev_offset += entry->rec_len;
+        }
+        
+        if (prev_entry) {
+            prev_entry->rec_len += entry_rec_len;
+        }
+    } else {
+        // Entry pertama, cari entry berikutnya
+        if (target_entry_offset + entry_rec_len < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *next_entry = (struct EXT2DirectoryEntry *)(dir_block + target_entry_offset + entry_rec_len);
+            if (next_entry->inode != 0) {
+                // Copy next entry ke posisi current entry
+                uint32_t copy_size = BLOCK_SIZE - (target_entry_offset + entry_rec_len);
+                for (uint32_t i = 0; i < copy_size; i++) {
+                    dir_block[target_entry_offset + i] = dir_block[target_entry_offset + entry_rec_len + i];
+                }
+                
+                // Update rec_len dari entry yang dipindah
+                struct EXT2DirectoryEntry *moved_entry = (struct EXT2DirectoryEntry *)(dir_block + target_entry_offset);
+                moved_entry->rec_len += entry_rec_len;
+            } else {
+                // Tidak ada entry berikutnya, clear entry
+                target_entry->inode = 0;
+                target_entry->rec_len = entry_rec_len;
+                target_entry->name_len = 0;
+                target_entry->file_type = 0;
+            }
+        }
+    }
+    
+    // 7. Tulis kembali directory block
+    write_blocks(dir_block, parent_inode.i_block[target_block_idx], 1);
+    
+    return 0; // Success
+}
+
+int8_t delete_directory(struct EXT2DriverRequest *request) {
+    // Validasi input parameter
+    if (!request || request->name_len == 0) {
+        return -1; // Invalid parameter
+    }
+    
+    // 1. Validasi parent directory exists dan valid
+    struct EXT2Inode parent_inode;
+    read_inode(request->parent_inode, &parent_inode);
+    
+    // Pastikan parent adalah directory
+    if (!(parent_inode.i_mode & EXT2_S_IFDIR)) {
+        return -2; // Parent is not a directory
+    }
+    
+    // 2. Cari directory yang akan dihapus dalam parent directory
+    uint8_t dir_block[BLOCK_SIZE];
+    uint32_t target_inode_idx = 0;
+    uint32_t target_block_idx = 0;
+    uint32_t target_entry_offset = 0;
+    bool dir_found = false;
+    
+    // Periksa setiap block dari parent directory
+    for (uint32_t block_idx = 0; block_idx < parent_inode.i_blocks && block_idx < 12; block_idx++) {
+        if (parent_inode.i_block[block_idx] == 0) continue;
+        
+        read_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+        
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            // Bandingkan nama
+            char *entry_name = (char *)(entry + 1);
+            if (entry->name_len == request->name_len) {
+                bool names_match = true;
+                for (uint8_t i = 0; i < entry->name_len; i++) {
+                    if (entry_name[i] != request->name[i]) {
+                        names_match = false;
+                        break;
+                    }
+                }
+                if (names_match) {
+                    // Pastikan ini adalah directory, bukan file
+                    if (entry->file_type != EXT2_FT_DIR) {
+                        return -6; // Target is a file, not a directory
+                    }
+                    
+                    target_inode_idx = entry->inode;
+                    target_block_idx = block_idx;
+                    target_entry_offset = offset;
+                    dir_found = true;
+                    break;
+                }
+            }
+            
+            offset += entry->rec_len;
+        }
+        
+        if (dir_found) break;
+    }
+    
+    if (!dir_found) {
+        return -3; // Directory not found
+    }
+    
+    // 3. Baca inode directory yang akan dihapus
+    struct EXT2Inode target_dir_inode;
+    read_inode(target_inode_idx, &target_dir_inode);
+    
+    // 4. Pastikan directory kosong (hanya berisi "." dan "..")
+    uint8_t target_dir_block[BLOCK_SIZE];
+    bool is_empty = true;
+    
+    for (uint32_t block_idx = 0; block_idx < target_dir_inode.i_blocks && block_idx < 12; block_idx++) {
+        if (target_dir_inode.i_block[block_idx] == 0) continue;
+        
+        read_blocks(target_dir_block, target_dir_inode.i_block[block_idx], 1);
+        
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(target_dir_block + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            // Skip "." dan ".." entries
+            char *entry_name = (char *)(entry + 1);
+            bool is_current_dir = (entry->name_len == 1 && entry_name[0] == '.');
+            bool is_parent_dir = (entry->name_len == 2 && entry_name[0] == '.' && entry_name[1] == '.');
+            
+            if (!is_current_dir && !is_parent_dir) {
+                is_empty = false;
+                break;
+            }
+            
+            offset += entry->rec_len;
+        }
+        
+        if (!is_empty) break;
+    }
+    
+    if (!is_empty) {
+        return -7; // Directory is not empty
+    }
+    
+    // 5. Dealokasi semua block yang digunakan oleh directory
+    for (uint32_t i = 0; i < target_dir_inode.i_blocks && i < 12; i++) {
+        if (target_dir_inode.i_block[i] != 0) {
+            deallocate_block(target_dir_inode.i_block[i]);
+        }
+    }
+    
+    // 6. Dealokasi inode
+    clear_inode_used(target_inode_idx);
+    
+    // 7. Hapus entry dari parent directory (sama seperti delete_file)
+    read_blocks(dir_block, parent_inode.i_block[target_block_idx], 1);
+    
+    struct EXT2DirectoryEntry *target_entry = (struct EXT2DirectoryEntry *)(dir_block + target_entry_offset);
+    uint16_t entry_rec_len = target_entry->rec_len;
+    
+    // Cari entry sebelumnya untuk menggabungkan rec_len
+    if (target_entry_offset > 0) {
+        // Ada entry sebelumnya, gabungkan rec_len
+        uint32_t prev_offset = 0;
+        struct EXT2DirectoryEntry *prev_entry = NULL;
+        
+        while (prev_offset < target_entry_offset) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + prev_offset);
+            if (prev_offset + entry->rec_len == target_entry_offset) {
+                prev_entry = entry;
+                break;
+            }
+            prev_offset += entry->rec_len;
+        }
+        
+        if (prev_entry) {
+            prev_entry->rec_len += entry_rec_len;
+        }
+    } else {
+        // Entry pertama, cari entry berikutnya
+        if (target_entry_offset + entry_rec_len < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *next_entry = (struct EXT2DirectoryEntry *)(dir_block + target_entry_offset + entry_rec_len);
+            if (next_entry->inode != 0) {
+                // Copy next entry ke posisi current entry
+                uint32_t copy_size = BLOCK_SIZE - (target_entry_offset + entry_rec_len);
+                for (uint32_t i = 0; i < copy_size; i++) {
+                    dir_block[target_entry_offset + i] = dir_block[target_entry_offset + entry_rec_len + i];
+                }
+                
+                // Update rec_len dari entry yang dipindah
+                struct EXT2DirectoryEntry *moved_entry = (struct EXT2DirectoryEntry *)(dir_block + target_entry_offset);
+                moved_entry->rec_len += entry_rec_len;
+            } else {
+                // Tidak ada entry berikutnya, clear entry
+                target_entry->inode = 0;
+                target_entry->rec_len = entry_rec_len;
+                target_entry->name_len = 0;
+                target_entry->file_type = 0;
+            }
+        }
+    }
+    
+    // 8. Tulis kembali directory block
+    write_blocks(dir_block, parent_inode.i_block[target_block_idx], 1);
+    
+    return 0; // Success
+}
 
 void syscall(struct InterruptFrame frame)
 {
@@ -686,6 +995,14 @@ void syscall(struct InterruptFrame frame)
     __asm__ volatile("cli; hlt");
   }
   break;
+  case 17: // SYS_READ_FILE
+{
+    struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+    int8_t *result = (int8_t *)frame.cpu.general.ecx;
+    
+    *result = read(*request);
+    break;
+}
   case 18: // SYS_CHANGE_DIR
   {
       uint32_t target_inode = frame.cpu.general.ebx;
@@ -709,6 +1026,15 @@ void syscall(struct InterruptFrame frame)
       frame.cpu.general.eax = 0; // Success
   }
   break;
+
+  case 21:
+  {
+    struct EXT2Inode* out_inode = (struct EXT2Inode*) frame.cpu.general.ebx;
+    uint32_t inode_idx = frame.cpu.general.ecx;
+    read_inode(inode_idx, out_inode); // Pastikan ada fungsi read_inode di ext2.c
+    break;
+    
+  }
   case 22: // SYS_LIST_DIR
 {
     // Dapatkan ALAMAT pointer dari userspace yang dikirim melalui ebx
@@ -829,7 +1155,15 @@ void syscall(struct InterruptFrame frame)
     frame.cpu.general.eax = current_print_row;
 }
 break;
-
+  case 23: // SYS_READ_BLOCK
+  {
+    uint8_t* buffer = (uint8_t*) frame.cpu.general.ebx;
+    uint32_t block_num = frame.cpu.general.ecx;
+    uint32_t count = frame.cpu.general.edx;
+    read_blocks(buffer, block_num, count); // Pastikan fungsi ini ada
+    break;
+  }
+  
   case 24:
   { struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
     int8_t *result = (int8_t *)frame.cpu.general.ecx;
@@ -837,7 +1171,23 @@ break;
     *result = create_directory(request);
     break;
   }
+  case 25: // SYS_DELETE_FILE - Delete file
+  {
+      struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+      int8_t *result = (int8_t *)frame.cpu.general.ecx;
+      
+      *result = delete_file(request);
+  }
+  break;
 
+  case 26: // SYS_DELETE_DIR - Delete directory
+  {
+      struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+      int8_t *result = (int8_t *)frame.cpu.general.ecx;
+      
+      *result = delete_directory(request);
+  }
+  break;
   case 28: // SYS_COPY_FILE
   {
     struct EXT2DriverRequest *src_request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;

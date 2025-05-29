@@ -1046,6 +1046,199 @@ void deallocate_node(uint32_t inode)
     DEBUG_PRINT("DEBUG: Successfully deallocated inode %u\n", inode);
 }
 
+void deallocate_block(uint32_t block_num)
+{
+    if (block_num == 0) return; // Tidak ada yang perlu didealokasi
+    
+    // Tentukan block group dari nomor blok
+    uint32_t group = (block_num - superblock.s_first_data_block) / superblock.s_blocks_per_group;
+    uint32_t local_block = (block_num - superblock.s_first_data_block) % superblock.s_blocks_per_group;
+    
+    // Hitung offset byte dan bit dalam bitmap
+    uint32_t byte_offset = local_block / 8;
+    uint32_t bit_offset = local_block % 8;
+    
+    // Baca block bitmap
+    struct BlockBuffer buffer;
+    read_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
+    
+    // Clear bit untuk menandai blok sebagai tidak terpakai
+    buffer.buf[byte_offset] &= ~(1 << bit_offset);
+    
+    // Tulis kembali bitmap yang sudah diupdate
+    write_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
+    
+    // Update counter blok bebas di block group descriptor
+    bgd_table.table[group].bg_free_blocks_count++;
+    
+    // Update counter blok bebas di superblock
+    superblock.s_free_blocks_count++;
+    
+    DEBUG_PRINT("Deallocated block %u in group %u\n", block_num, group);
+}
+
+/**
+ * @brief Dealokasi indirect block dan semua blok yang direferensikan
+ */
+void deallocate_indirect_block(uint32_t indirect_block, uint32_t level)
+{
+    if (indirect_block == 0) return;
+    
+    const uint32_t ptrs_per_block = BLOCK_SIZE / sizeof(uint32_t);
+    uint32_t indirect_table[ptrs_per_block];
+    
+    // Baca indirect table
+    read_blocks(indirect_table, indirect_block, 1);
+    
+    // Dealokasi semua blok yang direferensikan
+    for (uint32_t i = 0; i < ptrs_per_block; i++) {
+        if (indirect_table[i] != 0) {
+            if (level > 1) {
+                // Recursive dealokasi untuk double/triple indirect
+                deallocate_indirect_block(indirect_table[i], level - 1);
+            } else {
+                // Dealokasi blok data langsung
+                deallocate_block(indirect_table[i]);
+            }
+        }
+    }
+    
+    // Dealokasi indirect block itu sendiri
+    deallocate_block(indirect_block);
+}
+
+/**
+ * @brief Dealokasi semua blok yang digunakan oleh inode
+ */
+void deallocate_inode_blocks(struct EXT2Inode *inode)
+{
+    if (inode == NULL) return;
+    
+    uint32_t total_blocks = ceil_div(inode->i_size, BLOCK_SIZE);
+    const uint32_t ptrs_per_block = BLOCK_SIZE / sizeof(uint32_t);
+    
+    // Dealokasi direct blocks (0-11)
+    for (uint32_t i = 0; i < 12 && i < total_blocks; i++) {
+        if (inode->i_block[i] != 0) {
+            deallocate_block(inode->i_block[i]);
+            inode->i_block[i] = 0;
+        }
+    }
+    
+    // Dealokasi single indirect block (12)
+    if (total_blocks > 12 && inode->i_block[12] != 0) {
+        deallocate_indirect_block(inode->i_block[12], 1);
+        inode->i_block[12] = 0;
+    }
+    
+    // Dealokasi double indirect block (13)
+    if (total_blocks > 12 + ptrs_per_block && inode->i_block[13] != 0) {
+        deallocate_indirect_block(inode->i_block[13], 2);
+        inode->i_block[13] = 0;
+    }
+    
+    // Dealokasi triple indirect block (14) - jika diperlukan
+    if (total_blocks > 12 + ptrs_per_block + (ptrs_per_block * ptrs_per_block) && inode->i_block[14] != 0) {
+        deallocate_indirect_block(inode->i_block[14], 3);
+        inode->i_block[14] = 0;
+    }
+    
+    // Reset block count
+    inode->i_blocks = 0;
+    inode->i_size = 0;
+    
+    DEBUG_PRINT("Deallocated all blocks for inode\n");
+}
+
+/**
+ * @brief Dealokasi blok logis tertentu dari inode (untuk truncate/resize)
+ */
+void deallocate_logical_block_range(struct EXT2Inode *inode, uint32_t start_logical_block, uint32_t end_logical_block)
+{
+    const uint32_t ptrs_per_block = BLOCK_SIZE / sizeof(uint32_t);
+    
+    for (uint32_t logical_idx = start_logical_block; logical_idx <= end_logical_block; logical_idx++) {
+        uint32_t physical_block = get_physical_block_from_logical(inode, logical_idx);
+        
+        if (physical_block != 0) {
+            deallocate_block(physical_block);
+            
+            // Clear referensi di struktur inode
+            if (logical_idx < 12) {
+                // Direct block
+                inode->i_block[logical_idx] = 0;
+            }
+            else if (logical_idx < 12 + ptrs_per_block) {
+                // Single indirect block
+                if (inode->i_block[12] != 0) {
+                    uint32_t indirect_table[ptrs_per_block];
+                    read_blocks(indirect_table, inode->i_block[12], 1);
+                    
+                    uint32_t indirect_idx = logical_idx - 12;
+                    indirect_table[indirect_idx] = 0;
+                    
+                    write_blocks(indirect_table, inode->i_block[12], 1);
+                    
+                    // Cek apakah semua entry dalam indirect table kosong
+                    bool all_empty = true;
+                    for (uint32_t i = 0; i < ptrs_per_block; i++) {
+                        if (indirect_table[i] != 0) {
+                            all_empty = false;
+                            break;
+                        }
+                    }
+                    
+                    // Jika semua entry kosong, dealokasi indirect block juga
+                    if (all_empty) {
+                        deallocate_block(inode->i_block[12]);
+                        inode->i_block[12] = 0;
+                    }
+                }
+            }
+            else if (logical_idx < 12 + ptrs_per_block + (ptrs_per_block * ptrs_per_block)) {
+                // Double indirect block - implementasi similar tapi lebih kompleks
+                // Untuk kesederhanaan, implementasi dasar tanpa optimasi pembersihan
+                // indirect table yang kosong
+            }
+        }
+    }
+    
+    // Update block count (perkiraan sederhana)
+    uint32_t remaining_blocks = 0;
+    for (uint32_t i = 0; i < 15; i++) {
+        if (inode->i_block[i] != 0) {
+            if (i < 12) {
+                remaining_blocks++;
+            } else {
+                // Untuk indirect blocks, perlu perhitungan lebih detail
+                // Ini implementasi sederhana
+                remaining_blocks += ceil_div(inode->i_size, BLOCK_SIZE) - start_logical_block;
+                break;
+            }
+        }
+    }
+    inode->i_blocks = remaining_blocks * (BLOCK_SIZE / 512); // i_blocks dalam unit 512-byte
+}
+
+/**
+ * @brief Helper function untuk mengecek apakah blok sudah dialokasi
+ */
+bool is_block_allocated(uint32_t block_num)
+{
+    if (block_num == 0) return false;
+    
+    uint32_t group = (block_num - superblock.s_first_data_block) / superblock.s_blocks_per_group;
+    uint32_t local_block = (block_num - superblock.s_first_data_block) % superblock.s_blocks_per_group;
+    
+    uint32_t byte_offset = local_block / 8;
+    uint32_t bit_offset = local_block % 8;
+    
+    struct BlockBuffer buffer;
+    read_blocks(&buffer, bgd_table.table[group].bg_block_bitmap, 1);
+    
+    return (buffer.buf[byte_offset] & (1 << bit_offset)) != 0;
+}
+
 int8_t delete(struct EXT2DriverRequest request)
 {
   uint32_t inode_idx;

@@ -136,8 +136,11 @@ void process_command(char* command_buffer) {
         }
     } else if (strcmp(command_name, "ls") == 0) {
         handle_ls();
-        return;
-    } else if (strcmp(command_name, "mkdir") == 0) {
+    } else if (strcmp(command_name, "clear") == 0) {
+        handle_clear();
+    } else if (strcmp(command_name, "help") == 0) {
+        handle_help();
+    }else if (strcmp(command_name, "mkdir") == 0) {
         if (arg1) {
             handle_mkdir(arg1);
         } else {
@@ -159,10 +162,14 @@ void process_command(char* command_buffer) {
         if (arg1) {
             handle_rm(arg1);
         } else {
-            print_line("cp: missing argument");
+            print_line("rm: missing argument");
         }
     } else if (strcmp(command_name, "mv") == 0) {
-       print_line("mv: missing argument");
+       if (arg1 && arg2) {
+            handle_mv(arg1, arg2);
+        } else {
+            print_line("mv: missing arguments (usage: mv source destination)");
+        }
     } else if (strcmp(command_name, "find") == 0) {
         if (arg1) {
             handle_find(arg1);
@@ -318,9 +325,9 @@ int main(void)
         }
         if (current_output_row >= 24) {
             clear_screen(); // Syscall 8
-            current_output_row = 2; // Mulai prompt setelah 2 baris header clear screen
-            print_string("LumaOS Shell v1.0", &current_output_row, &cursor_col_for_input); // Cetak dan update baris/kolom
-            print_string("--- Screen cleared due to overflow ---", &current_output_row, &cursor_col_for_input); // Cetak dan update baris/kolom
+            current_output_row = 0; // Mulai prompt setelah 2 baris header clear screen
+            // print_string("LumaOS Shell v1.0", &current_output_row, &cursor_col_for_input); // Cetak dan update baris/kolom
+            // print_string("--- Screen cleared due to overflow ---", &current_output_row, &cursor_col_for_input); // Cetak dan update baris/kolom
             // current_output_row sudah di-increment oleh print_string
         }
     }

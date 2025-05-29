@@ -382,8 +382,27 @@ void deallocate_blocks(void *loc, uint32_t blocks);
  * @param bgd_loaded whether bgd is loaded or not
  * @return new last bgd
  */
-uint32_t deallocate_block(uint32_t *locations, uint32_t blocks, struct BlockBuffer *bitmap, uint32_t depth, uint32_t *last_bgd, bool bgd_loaded);
+void deallocate_block(uint32_t block_num);
 
+/**
+ * @brief Dealokasi indirect block dan semua blok yang direferensikan
+ */
+void deallocate_indirect_block(uint32_t indirect_block, uint32_t level);
+
+/**
+ * @brief Dealokasi semua blok yang digunakan oleh inode
+ */
+void deallocate_inode_blocks(struct EXT2Inode *inode);
+
+/**
+ * @brief Dealokasi blok logis tertentu dari inode (untuk truncate/resize)
+ */
+void deallocate_logical_block_range(struct EXT2Inode *inode, uint32_t start_logical_block, uint32_t end_logical_block);
+
+/**
+ * @brief Helper function untuk mengecek apakah blok sudah dialokasi
+ */
+bool is_block_allocated(uint32_t block_num);
 /**
  * @brief write node->block in the given node, will allocate
  * at least node->blocks number of blocks, if first 12 item of node-> block

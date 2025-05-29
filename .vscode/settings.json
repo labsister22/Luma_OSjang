@@ -13,6 +13,8 @@
         "paging.h": "c",
         "process.h": "c",
         "string.h": "c",
-        "ext2.h": "c"
+        "ext2.h": "c",
+        "stdbool.h": "c",
+        "disk.h": "c"
     },
 }

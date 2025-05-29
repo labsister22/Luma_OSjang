@@ -18,6 +18,8 @@ void handle_cp(const char* source, const char* destination);
 void handle_rm(const char *path);
 void handle_mv(const char* source, const char* destination);
 void handle_find(const char* name);
+void handle_help();
+void handle_clear();
 
 // Utility functions (from user-shell.c / shared)
 void print_string(const char* str, int* row, int* col);

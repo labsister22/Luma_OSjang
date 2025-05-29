@@ -58,8 +58,17 @@ clean:
         $(OUTPUT_FOLDER)/iso $(OUTPUT_FOLDER)/storage.bin  $(OUTPUT_FOLDER)/shell \
         $(OUTPUT_FOLDER)/shell_elf $(OUTPUT_FOLDER)/inserter *.o
 
+# Quick run - preserve semua data di memory/storage
+quick:
+	@if [ ! -f bin/OS2025.iso ] || [ ! -f bin/storage.bin ]; then \
+		echo "❌ Files not found! Run 'make all' first to build everything."; \
+		exit 1; \
+	fi
+	@echo "🚀 Quick run (preserving all data)..."
+	@qemu-system-i386 -s -rtc base=localtime -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso -audiodev pa,id=snd0 -machine pcspk-audiodev=snd0
+	
 # Disk
-.PHONY: disk
+.PHONY: disk quick
 disk:
 	@mkdir -p bin
 	@rm -f bin/storage.bin

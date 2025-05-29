@@ -144,31 +144,119 @@ void resolve_path_display(char* resolved_path, const char* path) {
         strcpy(resolved_path, normalized_path); // Use allowed strcpy
     }
 }
+static uint32_t rm_target_inode = 0;
+static int rm_target_found = 0;
+static int rm_is_directory = 0;
 
-// --- Built-in Command Implementations (Stubs for unsupported FS operations) ---
-
-void handle_cd(const char *path) {
-    if (!path || strlen(path) == 0) {
-        print_line("Error: Missing argument");
+// Modified find_recursive for rm - finds file/directory in current directory only
+void find_for_rm(uint32_t curr_inode, const char* search_name, int* found, int* is_dir, uint32_t* target_inode) {
+    if (*found || curr_inode == 0 || search_name == NULL) {
         return;
     }
 
-    uint32_t target_inode = resolve_path(path);
-
-    if (target_inode == 9999) {
-        print_line("Error: Path not found");
+    // Validate search_name is not empty
+    if (search_name[0] == '\0') {
         return;
     }
 
-    // Update current directory
-    current_inode = target_inode;
-    syscall(18, current_inode, (uint32_t)path, 1);
-
-    // Update working directory string using resolve_path_display
-    resolve_path_display(current_working_directory, path);
+    struct EXT2Inode dir_inode;
+    char* inode_ptr = (char*)&dir_inode;
+    for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+        inode_ptr[i] = 0;
+    }
     
-    print_line("Directory changed");
+    syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
+
+    if (dir_inode.i_size == 0 || dir_inode.i_size > 65536 || 
+        !(dir_inode.i_mode & 0x4000) || dir_inode.i_block[0] == 0) {
+        return;
+    }
+
+    uint8_t buf[1024];
+    for (unsigned int i = 0; i < 1024; i++) {
+        buf[i] = 0;
+    }
+    
+    syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1);
+
+    uint32_t offset = 0;
+    int entries_processed = 0;
+    const int MAX_ENTRIES = 50;
+    
+    while (offset < 1000 && !(*found) && entries_processed < MAX_ENTRIES) {
+        if (offset + sizeof(struct EXT2DirectoryEntry) > 1024) {
+            break;
+        }
+        
+        struct EXT2DirectoryEntry* entry = (struct EXT2DirectoryEntry*)(buf + offset);
+
+        if (entry->rec_len == 0 || entry->rec_len < 8 || 
+            entry->rec_len > 500 || offset + entry->rec_len > 1024) {
+            break;
+        }
+        
+        if (entry->inode == 0 || entry->name_len == 0 || entry->name_len > 255) {
+            offset += entry->rec_len;
+            entries_processed++;
+            continue;
+        }
+
+        char entry_name[256];
+        char* name_ptr = (char*)(entry + 1);
+        unsigned int name_len = (unsigned int)entry->name_len;
+        
+        if (name_len > 255) name_len = 255;
+        if (offset + sizeof(struct EXT2DirectoryEntry) + name_len > 1024) {
+            name_len = 1024 - offset - sizeof(struct EXT2DirectoryEntry);
+            if (name_len > 255) name_len = 255;
+        }
+        
+        for (unsigned int i = 0; i < name_len; i++) {
+            if (offset + sizeof(struct EXT2DirectoryEntry) + i >= 1024) {
+                name_len = i;
+                break;
+            }
+            if (i >= 255) {
+                name_len = i;
+                break;
+            }
+            entry_name[i] = name_ptr[i];
+        }
+        entry_name[name_len] = '\0';
+
+        // Compare with search name
+        unsigned int search_len = 0;
+        while (search_name[search_len] != '\0' && search_len < 255) {
+            search_len++;
+        }
+        
+        int match = (search_len == name_len && search_len > 0);
+        for (unsigned int i = 0; match && i < search_len; i++) {
+            if (search_name[i] != entry_name[i]) {
+                match = 0;
+            }
+        }
+
+        if (match) {
+            // Found the target - get its type
+            struct EXT2Inode found_inode;
+            char* found_ptr = (char*)&found_inode;
+            for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+                found_ptr[i] = 0;
+            }
+            syscall(21, (uint32_t)&found_inode, entry->inode, 0);
+            
+            *found = 1;
+            *target_inode = entry->inode;
+            *is_dir = (found_inode.i_mode & 0x4000) ? 1 : 0;
+            return;
+        }
+
+        offset += entry->rec_len;
+        entries_processed++;
+    }
 }
+// --- Built-in Command Implementations (Stubs for unsupported FS operations) ---
 int handle_ls() { // Tidak perlu argumen row_ptr lagi
     // Header dicetak di userspace
     // print_line("name                type   size", &current_output_row);
@@ -181,6 +269,107 @@ int handle_ls() { // Tidak perlu argumen row_ptr lagi
 
     // Setelah syscall, `current_output_row` global sudah diupdate oleh kernel.
     return current_output_row; // Kembalikan nilai global yang sudah diupdate
+}
+void handle_clear() {
+    // Clear screen using syscall
+    syscall(8, 0, 0, 0);
+    
+    // Reset current output row to start
+    current_output_row = 0;
+     // Empty line before prompt
+}
+void handle_cd(const char* path) {
+
+    if (!path || strlen(path) == 0) {
+        print_line("Error: Missing argument");
+        return;
+    }
+
+    // Handle special cases
+    if (strcmp(path, "/") == 0) {
+        // Go to root directory
+        current_inode = 2; // Root inode
+        strcpy(current_working_directory, "/");
+        
+        current_output_row++;
+        print_line("Changed to root directory: /");
+        return;
+    }
+    
+    if (strcmp(path, "..") == 0 || strcmp(path, "../") == 0) {
+        // Go to parent directory (simplified - for now just go to root)
+        if (strcmp(current_working_directory, "/") != 0) {
+            current_inode = 2; // Root inode
+            strcpy(current_working_directory, "/");
+            
+            current_output_row++;
+            print_line("Changed to root directory: /");
+        } else {
+            current_output_row++;
+            print_line("Already at root directory");
+        }
+        return;
+    }
+    
+    if (strcmp(path, ".") == 0) {
+        // Stay in current directory
+        int b = 0;
+        print_string("Staying in current directory: ", &current_output_row, &b);
+        print_string(current_working_directory, &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    // PERBAIKAN: Gunakan find_for_rm untuk mencari directory
+    int target_found = 0;
+    int is_directory = 0;
+    uint32_t target_inode = 0;
+    
+    // Use find_for_rm to locate the target directory
+    find_for_rm(current_inode, path, &target_found, &is_directory, &target_inode);
+    
+    if (!target_found || target_inode == 0) {
+        current_output_row++;
+        int b = 0;
+        print_string("cd: directory '", &current_output_row, &b);
+        print_string(path, &current_output_row, &b);
+        print_string("' not found", &current_output_row, &b);
+        return;
+    }
+    
+    // Check if target is actually a directory
+    if (!is_directory) {
+        current_output_row++;
+        int b = 0;
+        print_string("cd: '", &current_output_row, &b);
+        print_string(path, &current_output_row, &b);
+        print_string("' is not a directory", &current_output_row, &b);
+        return;
+    }
+    
+    // Success! Update current directory
+    current_inode = target_inode;
+
+    // Update working directory path
+    if (path[0] == '/') {
+        // Absolute path
+        strcpy(current_working_directory, path);
+    } else {
+        // Relative path - append to current
+        if (strcmp(current_working_directory, "/") != 0) {
+            strcat(current_working_directory, "/");
+        }
+        strcat(current_working_directory, path);
+    }
+    
+    // Optional: gunakan syscall jika ada implementasi cd di kernel
+    syscall(18, current_inode, (uint32_t)path, 0);
+
+    // Success message
+    int b = 0;
+    print_string("Changed directory to: ", &current_output_row, &b);
+    print_string(current_working_directory, &current_output_row, &b);
+    current_output_row++;
 }
 
 void handle_mkdir(const char* name) {
@@ -233,10 +422,176 @@ void handle_mkdir(const char* name) {
 
 
 void handle_cat(const char* filename) {
-    // print_string("cat: Not implemented. No suitable kernel syscall for file reading.", current_row+1, 0);
-    (void)filename;
-}
+    if (!filename || strlen(filename) == 0) {
+        print_line("cat: missing argument");
+        return;
+    }
 
+    // Siapkan request untuk membaca file
+    struct EXT2DriverRequest request;
+    memset(&request, 0, sizeof(request));
+    
+    request.parent_inode = current_inode;
+    request.name_len = strlen(filename);
+    
+    // Copy nama file dengan bounds checking
+    size_t copy_len = strlen(filename);
+    if (copy_len >= sizeof(request.name)) {
+        copy_len = sizeof(request.name) - 1;
+    }
+    for (size_t i = 0; i < copy_len; i++) {
+        request.name[i] = filename[i];
+    }
+    request.name[copy_len] = '\0';
+    
+    // Alokasi buffer untuk membaca file
+    // Maksimum ukuran file yang bisa ditampilkan (8KB untuk keamanan)
+    const uint32_t max_file_size = 8192;
+    static uint8_t file_buffer[8192];
+    
+    request.buf = file_buffer;
+    request.buffer_size = max_file_size;
+    request.is_directory = 0;
+    
+    // Panggil syscall untuk membaca file
+    int8_t result;
+    syscall(17, (uint32_t)&request, (uint32_t)&result, 0);
+    
+    int b = 0;
+    
+    if (result == 0) {
+        // File berhasil dibaca, tampilkan isinya
+        current_output_row++;
+        
+        // Dapatkan ukuran file yang sebenarnya
+        // Kita perlu membaca inode untuk mendapatkan ukuran file
+        uint32_t file_inode = 0;
+        struct EXT2Inode parent_dir;
+        read_inode(current_inode, &parent_dir);
+        
+        if (find_inode_in_dir(&parent_dir, filename, &file_inode)) {
+            struct EXT2Inode file_node;
+            read_inode(file_inode, &file_node);
+            
+            uint32_t file_size = file_node.i_size;
+            if (file_size > max_file_size) {
+                file_size = max_file_size;
+            }
+            
+            // Tampilkan isi file karakter per karakter
+            for (uint32_t i = 0; i < file_size; i++) {
+                char c = file_buffer[i];
+                
+                if (c == '\n') {
+                    // Newline - pindah ke baris baru
+                    current_output_row++;
+                    b = 0;  // Reset kolom
+                    
+                    // Cek apakah masih ada ruang di layar
+                    if (current_output_row >= 23) {
+                        print_string("-- More --", &current_output_row, &b);
+                        // Bisa ditambahkan pause untuk user input
+                        current_output_row++;
+                        break;
+                    }
+                } else if (c == '\r') {
+                    // Carriage return - abaikan (LF newline format)
+                    continue;
+                } else if (c >= 32 && c <= 126) {
+                    // Karakter yang bisa ditampilkan
+                    print_char(c, &current_output_row, &b);
+                    
+                    // Cek wrap around
+                    if (b >= 80) {
+                        current_output_row++;
+                        b = 0;
+                        
+                        if (current_output_row >= 23) {
+                            print_string("-- More --", &current_output_row, &b);
+                            current_output_row++;
+                            break;
+                        }
+                    }
+                } else {
+                    // Karakter kontrol lainnya - tampilkan sebagai '?'
+                    print_char('?', &current_output_row, &b);
+                    
+                    if (b >= 80) {
+                        current_output_row++;
+                        b = 0;
+                        
+                        if (current_output_row >= 23) {
+                            print_string("-- More --", &current_output_row, &b);
+                            current_output_row++;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Pastikan cursor berada di baris baru setelah selesai
+            if (b > 0) {
+                current_output_row++;
+            }
+            
+        } else {
+            print_string("cat: cannot determine file size", &current_output_row, &b);
+            current_output_row++;
+        }
+        
+    } else if (result == 1) {
+        print_string("cat: '", &current_output_row, &b);
+        print_string(filename, &current_output_row, &b);
+        print_string("' is a directory", &current_output_row, &b);
+        current_output_row++;
+    } else if (result == 2) {
+        print_string("cat: file '", &current_output_row, &b);
+        print_string(filename, &current_output_row, &b);
+        print_string("' is too large", &current_output_row, &b);
+        current_output_row++;
+    } else if (result == 3) {
+        print_string("cat: '", &current_output_row, &b);
+        print_string(filename, &current_output_row, &b);
+        print_string("': No such file or directory", &current_output_row, &b);
+        current_output_row++;
+    } else {
+        print_string("cat: error reading file '", &current_output_row, &b);
+        print_string(filename, &current_output_row, &b);
+        print_string("'", &current_output_row, &b);
+        current_output_row++;
+    }
+}
+void handle_help() {
+    
+    // Header
+    print_line("LumaOS Shell - Available Commands:");
+    // File system commands
+    print_line("  ls                 - List directory contents");
+    print_line("  cd <path>          - Change directory");
+    print_line("  mkdir <name>       - Create directory");
+    print_line("  cat <file>         - Display file contents");
+    print_line("  cp <src> <dest>    - Copy file");
+    print_line("  rm <file>          - Remove file");
+    print_line("  mv <src> <dest>    - Move/rename file");
+    print_line("  find <name>        - Search for file");
+    
+    // Process management commands
+    print_line("  exec <file>        - Execute program");
+    print_line("  ps                 - List running processes");
+    print_line("  kill <pid>         - Terminate process by PID");
+    
+    // System commands
+    print_line("  help               - Show this help message");
+    print_line("  clear              - Clear the screen");
+    print_line("  clock              - Enable clock display");
+    print_line("  exit               - Exit the shell");
+    
+    // Audio commands
+    print_line("  beep               - Play system beep");
+    print_line("  stop_sound         - Stop audio playback");
+    
+
+}
 void handle_cp(const char* source, const char* destination) {
     if (!source || strlen(source) == 0) {
         print_line("cp: missing source argument");
@@ -346,18 +701,395 @@ void handle_cp(const char* source, const char* destination) {
 }
 
 void handle_rm(const char* path) {
-    // print_string("rm: Not implemented. No kernel syscall for removing files/directories.", current_row+1, 0);
-    (void)path;
+    if (!path || strlen(path) == 0) {
+        int b = 0;
+        print_string("rm: missing file/directory name", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    // Special check: don't allow removal of . or ..
+    if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0 || strcmp(path, "../") == 0) {
+        int b = 0;
+        print_string("rm: cannot remove '.' or '..' or '../' directories", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    // Reset global variables
+    rm_target_inode = 0;
+    rm_target_found = 0;
+    rm_is_directory = 0;
+
+    // Use find_for_rm to locate the target in current directory
+    find_for_rm(current_inode, path, &rm_target_found, &rm_is_directory, &rm_target_inode);
+    
+    if (!rm_target_found || rm_target_inode == 0) {
+        int b = 0;
+        print_string("rm: file/directory '", &current_output_row, &b);
+        print_string(path, &current_output_row, &b);
+        print_string("' not found", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+    
+    // Prepare the deletion request
+    struct EXT2DriverRequest request;
+    memset(&request, 0, sizeof(request));
+    
+    // Set up the request parameters
+    request.parent_inode = current_inode;
+    request.buffer_size = 0;
+    request.buf = NULL;
+    request.is_directory = rm_is_directory;
+
+    // Copy the name safely
+    size_t path_len = strlen(path);
+    size_t max_copy = sizeof(request.name) - 1;
+    if (path_len < max_copy) {
+        max_copy = path_len;
+    }
+
+    for (size_t i = 0; i < max_copy; i++) {
+        request.name[i] = path[i];
+    }
+    request.name[max_copy] = '\0';
+
+    request.name_len = path_len;
+
+    // Call the appropriate syscall based on type
+    int8_t result;
+    if (rm_is_directory) {
+        // Use syscall 26 for directory deletion
+        syscall(26, (uint32_t)&request, (uint32_t)&result, 0);
+    } else {
+        // Use syscall 25 for file deletion
+        syscall(25, (uint32_t)&request, (uint32_t)&result, 0);
+    }
+    
+    // Report the result using global pointers
+    int b = 0;
+    if (result == 0) {
+        print_string("rm: ", &current_output_row, &b);
+        if (rm_is_directory) {
+            print_string("directory '", &current_output_row, &b);
+        } else {
+            print_string("file '", &current_output_row, &b);
+        }
+        print_string(path, &current_output_row, &b);
+        print_string("' removed successfully", &current_output_row, &b);
+        current_output_row++;
+    } else {
+        print_string("rm: failed to remove ", &current_output_row, &b);
+        if (rm_is_directory) {
+            print_string("directory '", &current_output_row, &b);
+        } else {
+            print_string("file '", &current_output_row, &b);
+        }
+        print_string(path, &current_output_row, &b);
+        
+        // Provide more specific error messages based on result code
+        switch (result) {
+            case 1:
+                print_string("' - already exists or permission denied", &current_output_row, &b);
+                break;
+            case 2:
+                print_string("' - parent is not a directory", &current_output_row, &b);
+                break;
+            case 3:
+                print_string("' - directory not empty", &current_output_row, &b);
+                break;
+            default:
+                print_string("' - unknown error", &current_output_row, &b);
+                break;
+        }
+        current_output_row++;
+    }
 }
 
 void handle_mv(const char* source, const char* destination) {
-    // print_string("mv: requires two arguments, not supported with current string functions.", current_row+1, 0);
-    // print_string("mv: Not implemented. No kernel syscall for moving/renaming files.", current_row + 2, 0);
-    (void)source;
-    (void)destination;
+    int b = 0; // Column pointer for print_string
+
+    if (!source || strlen(source) == 0 || !destination || strlen(destination) == 0) {
+        print_string("mv: missing source or destination argument (usage: mv source destination)", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    // Attempt to copy the source to the destination
+    // Note: This only works for files. Moving directories is much more complex
+    // and would require recursive operations and potentially changes to parent directory entries.
+    print_string("mv: Attempting to move file (copy and then delete)...", &current_output_row, &b);
+    current_output_row++;
+
+    // Use handle_cp, which in turn calls SYS_COPY_FILE
+    handle_cp(source, destination);
+
+    print_string("Attempting to remove source file: ", &current_output_row, &b);
+    print_string(source, &current_output_row, &b);
+    current_output_row++;
+
+    // Use handle_rm, which in turn calls SYS_DELETE_FILE or SYS_DELETE_DIR
+    handle_rm(source);
 }
 
-void handle_find(const char* name) {
-    // print_string("find: Not implemented. No kernel syscall for recursive file search.", current_row+1, 0);
-    (void)name;
+void itoa(int value, char* str) {
+    char buf[16];
+    int i = 0, j = 0;
+    if (value == 0) {
+        str[0] = '0'; str[1] = '\0'; return;
+    }
+    if (value < 0) {
+        str[j++] = '-';
+        value = -value;
+    }
+    while (value > 0) {
+        buf[i++] = (value % 10) + '0';
+        value /= 10;
+    }
+    while (i > 0) str[j++] = buf[--i];
+    str[j] = '\0';
+}
+
+void find_recursive(uint32_t curr_inode, const char* search_name, char* path, int* found) {
+    // Enhanced safety checks
+    if (*found || curr_inode == 0 || search_name == NULL || path == NULL) {
+        return;
+    }
+    
+    // Prevent deep recursion with static counter
+    static int recursion_depth = 0;
+    if (recursion_depth > 10) {
+        return;
+    }
+    recursion_depth++;
+
+    // Validate search_name is not empty
+    if (search_name[0] == '\0') {
+        recursion_depth--;
+        return;
+    }
+
+    struct EXT2Inode dir_inode;
+    char* inode_ptr = (char*)&dir_inode;
+    for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+        inode_ptr[i] = 0;
+    }
+    
+    syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
+
+    if (dir_inode.i_size == 0 || dir_inode.i_size > 65536 || 
+        !(dir_inode.i_mode & 0x4000) || dir_inode.i_block[0] == 0) {
+        recursion_depth--;
+        return;
+    }
+
+    uint8_t buf[1024];
+    for (unsigned int i = 0; i < 1024; i++) {
+        buf[i] = 0;
+    }
+    
+    syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1);
+
+    uint32_t offset = 0;
+    int entries_processed = 0;
+    const int MAX_ENTRIES = 50;
+    
+    while (offset < 1000 && !(*found) && entries_processed < MAX_ENTRIES) {
+        if (offset + sizeof(struct EXT2DirectoryEntry) > 1024) {
+            break;
+        }
+        
+        struct EXT2DirectoryEntry* entry = (struct EXT2DirectoryEntry*)(buf + offset);
+
+        if (entry->rec_len == 0 || entry->rec_len < 8 || 
+            entry->rec_len > 500 || offset + entry->rec_len > 1024) {
+            break;
+        }
+        
+        if (entry->inode == 0 || entry->name_len == 0 || entry->name_len > 255) {
+            offset += entry->rec_len;
+            entries_processed++;
+            continue;
+        }
+
+        char entry_name[256];
+        char* name_ptr = (char*)(entry + 1);
+        unsigned int name_len = (unsigned int)entry->name_len;
+        
+        if (name_len > 255) name_len = 255;
+        if (offset + sizeof(struct EXT2DirectoryEntry) + name_len > 1024) {
+            name_len = 1024 - offset - sizeof(struct EXT2DirectoryEntry);
+            if (name_len > 255) name_len = 255;
+        }
+        
+        for (unsigned int i = 0; i < name_len; i++) {
+            if (offset + sizeof(struct EXT2DirectoryEntry) + i >= 1024) {
+                name_len = i;
+                break;
+            }
+            if (i >= 255) {
+                name_len = i;
+                break;
+            }
+            entry_name[i] = name_ptr[i];
+        }
+        entry_name[name_len] = '\0';
+
+        if ((name_len == 1 && entry_name[0] == '.') ||
+            (name_len == 2 && entry_name[0] == '.' && entry_name[1] == '.')) {
+            offset += entry->rec_len;
+            entries_processed++;
+            continue;
+        }
+
+        unsigned int search_len = 0;
+        while (search_name[search_len] != '\0' && search_len < 255) {
+            search_len++;
+        }
+        
+        int match = (search_len == name_len && search_len > 0);
+        for (unsigned int i = 0; match && i < search_len; i++) {
+            if (search_name[i] != entry_name[i]) {
+                match = 0;
+            }
+        }
+
+        if (match) {
+            char result_path[512];
+            unsigned int path_pos = 0;
+            
+            while (path[path_pos] != '\0' && path_pos < 400) {
+                result_path[path_pos] = path[path_pos];
+                path_pos++;
+            }
+            
+            if (path_pos > 1 || path[0] != '/') {
+                if (path_pos < 510) {
+                    result_path[path_pos++] = '/';
+                }
+            }
+            
+            for (unsigned int i = 0; i < name_len && path_pos < 511; i++) {
+                result_path[path_pos++] = entry_name[i];
+            }
+            result_path[path_pos] = '\0';
+
+            struct EXT2Inode found_inode;
+            char* found_ptr = (char*)&found_inode;
+            for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+                found_ptr[i] = 0;
+            }
+            syscall(21, (uint32_t)&found_inode, entry->inode, 0);
+            
+            // ✅ FIXED: Use global pointer variables
+            int b = 0;
+            if (current_output_row < 22) {
+                if (found_inode.i_mode & 0x4000) {
+                    print_string("FOUND DIR: ", &current_output_row, &b);
+                    print_string(result_path, &current_output_row, &b);
+                    current_output_row++;
+                } else {
+                    print_string("FOUND FILE: ", &current_output_row, &b);
+                    print_string(result_path, &current_output_row, &b);
+                    current_output_row++;
+                }
+            }
+            *found = 1;
+            recursion_depth--;
+            return;
+        }
+
+        if (entry->inode != curr_inode && entry->inode > 1) {
+            struct EXT2Inode child_inode;
+            char* child_ptr = (char*)&child_inode;
+            for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+                child_ptr[i] = 0;
+            }
+            
+            syscall(21, (uint32_t)&child_inode, entry->inode, 0);
+            
+            if ((child_inode.i_mode & 0x4000) == 0x4000 && 
+                child_inode.i_size > 0 && child_inode.i_size < 65536 &&
+                child_inode.i_block[0] != 0) {
+                
+                char new_path[512];
+                unsigned int new_path_pos = 0;
+                
+                while (path[new_path_pos] != '\0' && new_path_pos < 400) {
+                    new_path[new_path_pos] = path[new_path_pos];
+                    new_path_pos++;
+                }
+                
+                if (new_path_pos > 1 || path[0] != '/') {
+                    if (new_path_pos < 510) {
+                        new_path[new_path_pos++] = '/';
+                    }
+                }
+                
+                for (unsigned int i = 0; i < name_len && new_path_pos < 511; i++) {
+                    new_path[new_path_pos++] = entry_name[i];
+                }
+                new_path[new_path_pos] = '\0';
+
+                find_recursive(entry->inode, search_name, new_path, found);
+            }
+        }
+
+        offset += entry->rec_len;
+        entries_processed++;
+    }
+    
+    recursion_depth--;
+}
+
+void handle_find(const char* filename) {
+    if (filename == NULL || filename[0] == '\0') {
+        int b = 0;
+        print_string("find: usage: find <filename>", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+    
+    unsigned int filename_len = 0;
+    while (filename[filename_len] != '\0' && filename_len < 255) {
+        char c = filename[filename_len];
+        if (c < 32 || c > 126) {
+            int b = 0;
+            print_string("find: invalid character in filename", &current_output_row, &b);
+            current_output_row++;
+            return;
+        }
+        filename_len++;
+    }
+    
+    if (filename_len == 0 || filename_len > 255) {
+        int b = 0;
+        print_string("find: invalid filename length", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+    
+    if (current_output_row >= 18) {
+        int b = 0;
+        print_string("find: insufficient screen space", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+    
+    int b = 0;
+    print_string("Searching for: ", &current_output_row, &b);
+    print_string(filename, &current_output_row, &b);
+    current_output_row++;
+
+    char root_path[3] = {'/', '\0', '\0'};
+    int found = 0;
+    
+    find_recursive(2, filename, root_path, &found);
+
+    if (!found) {
+        b = 0;
+        print_string("File or directory not found", &current_output_row, &b);
+        current_output_row++;
+    }
 }

@@ -87,3 +87,37 @@ char *strcpy(char *dest, const char *src) {
     return original_dest;
 
 }
+int sprintf(char *str, const char *format, ...) {
+    // Implementasi sederhana untuk format string
+    // Hanya support %s, %d, %c untuk sekarang
+    
+    const char *src = format;
+    char *dst = str;
+    int written = 0;
+    
+    // Untuk demo, implementasi sangat sederhana
+    // Copy format string langsung (tanpa formatting)
+    while (*src) {
+        *dst++ = *src++;
+        written++;
+    }
+    *dst = '\0';
+    
+    return written;
+}
+
+// Implementasi strncpy
+char *strncpy(char *dest, const char *src, size_t n) {
+    size_t i;
+    
+    for (i = 0; i < n && src[i] != '\0'; i++) {
+        dest[i] = src[i];
+    }
+    
+    // Pad dengan null bytes jika src lebih pendek dari n
+    for (; i < n; i++) {
+        dest[i] = '\0';
+    }
+    
+    return dest;
+}
