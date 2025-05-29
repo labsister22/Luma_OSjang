@@ -7,22 +7,62 @@
 extern char current_working_directory[256];
 uint32_t current_inode = 2; // Default to root inode for directory operations
 int current_output_row = 0; // Track the current output row for commands like ls
-void print_string(const char* str, int* row, int* col) {
-    syscall(6, (uint32_t)str, (uint32_t)row, (uint32_t)col);
-}
+void print_string(const char* str, int* row_ptr, int* col_ptr) { // Terima pointer
+    // Kirim NILAI ke syscall
+    syscall(6, (uint32_t)str, (uint32_t)*row_ptr, (uint32_t)*col_ptr);
 
-void print_char(char c, int* row, int* col) {
-    syscall(5, (uint32_t)&c, (uint32_t)col, (uint32_t)row);
-}
+    // Syscall 6 (SYS_PUTS) di kernel mengupdate kursor dan mengembalikan baris/kolom.
+    // Namun, karena SYS_PUTS hanya mencetak string dan mengupdate kursor framebuffer,
+    // kita perlu secara manual memajukan row_ptr/col_ptr di userspace berdasarkan string.
+    // Atau, lebih baik, minta syscall 6 mengembalikan posisi kursor akhir.
+    // Jika syscall 6 tidak mengembalikan, lakukan perhitungan di userspace:
 
-void print_line(const char *str)
-{
-    if (&current_output_row < 24) { // Basic check to prevent writing off common screen area
-        print_string(str, &current_output_row, 0);
+    size_t len = strlen(str);
+    for (size_t i = 0; i < len; ++i) {
+        if (str[i] == '\n') {
+            (*row_ptr)++;
+            (*col_ptr) = 0;
+        } else {
+            (*col_ptr)++;
+            if ((*col_ptr) >= 80) { // Wrap around
+                (*col_ptr) = 0;
+                (*row_ptr)++;
+            }
+        }
     }
-    (current_output_row)++;
 }
 
+void print_char(char c, int* row_ptr, int* col_ptr) { // Terima pointer
+    syscall(5, (uint32_t)&c, (uint32_t)*col_ptr, (uint32_t)*row_ptr);
+    (*col_ptr)++; // Update kolom
+    if ((*col_ptr) >= 80) {
+        (*col_ptr) = 0;
+        (*row_ptr)++;
+    }
+}
+
+void print_line(const char *str) // Tidak perlu argumen row karena menggunakan global current_output_row
+{
+    int temp_col = 0; // Mulai dari kolom 0
+    if (current_output_row < 24) {
+        // print_string ini harus mengupdate current_output_row dan temp_col
+        print_string(str, &current_output_row, &temp_col);
+    }
+    // Pastikan baris benar-benar maju setelah satu baris penuh
+    current_output_row++; // Ini sudah ada dan benar untuk memajukan baris setelah print_line
+    // Jika string tidak diakhiri \n dan tidak mengisi penuh baris, ini akan memaksa baris baru.
+}
+uint32_t resolve_path(const char* path) {
+    // Simple implementation - you'll need to enhance this
+    if (strcmp(path, "/") == 0) {
+        return 2; // Root inode
+    }
+    if (strcmp(path, "..") == 0) {
+        return 2; // For now, go to root
+    }
+    // For other paths, return error
+    return 9999; // Error indicator
+}
 // --- Helper for path concatenation (Purely for shell display, not actual FS changes) ---
 // This function combines current_working_directory with a given path
 // and handles '..' and '.' for navigating within the *shell's display path*.
@@ -108,17 +148,42 @@ void resolve_path_display(char* resolved_path, const char* path) {
 
 // --- Built-in Command Implementations (Stubs for unsupported FS operations) ---
 
-void handle_cd(const char* path) {
-    // print_string("cd: Not implemented. No suitable kernel syscall for file reading.", current_row +1 , 0);
-    (void)path;
+void handle_cd(const char *path) {
+    if (!path || strlen(path) == 0) {
+        int b = 0;
+        print_string("Error: Missing argument", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    uint32_t target_inode = resolve_path(path);
+
+    if (target_inode == 9999) {
+        int b = 0;
+        print_string("Error: Path not found", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    // Update current directory
+    current_inode = target_inode;
+    syscall(18, current_inode, (uint32_t)path, 1);
+
+    // Update working directory string using resolve_path_display
+    resolve_path_display(current_working_directory, path);
+    
+    int b = 0;
+    print_string("Directory changed", &current_output_row, &b);
+    current_output_row++;
 }
 int handle_ls() { // Tidak perlu argumen row_ptr lagi
     // Header dicetak di userspace
-    print_line("name                type   size");
-    print_line("================================");
+    // print_line("name                type   size", &current_output_row);
+    // print_line("================================", &current_output_row);
 
     // Panggil syscall, kirim ALAMAT dari global current_output_row
     // Agar kernel dapat membaca nilai awalnya dan menulis update-nya
+    // current_output_row++;
     syscall(22, (uint32_t)&current_output_row, current_inode, 0);
 
     // Setelah syscall, `current_output_row` global sudah diupdate oleh kernel.

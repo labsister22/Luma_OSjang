@@ -149,13 +149,13 @@ void syscall(struct InterruptFrame frame)
   case 6: // SYS_PUTS - Print string
   {
     char *str = (char *)frame.cpu.general.ebx;
-    uint8_t col = frame.cpu.general.edx;
     uint8_t row = frame.cpu.general.ecx;
+    uint8_t col = frame.cpu.general.edx;
 
     // Simple puts implementation
     uint32_t i = 0;
-    uint8_t current_col = col;
     uint8_t current_row = row;
+    uint8_t current_col = col;
     while (str[i] != '\0' && i < 1000)
     { // Safety limit
       if (str[i] == '\n')
@@ -234,6 +234,29 @@ void syscall(struct InterruptFrame frame)
     __asm__ volatile("cli; hlt");
   }
   break;
+  case 18: // SYS_CHANGE_DIR
+{
+    uint32_t target_inode = frame.cpu.general.ebx;
+    // char* path = (char*)frame.cpu.general.ecx;
+    // bool update_display = (bool)frame.cpu.general.edx;
+    if (target_inode == 0 || target_inode > 1000) { // Simple bounds check
+        frame.cpu.general.eax = 1; // Error - invalid inode
+        break;
+    }
+    // Simple validation - check if inode exists
+    struct EXT2Inode inode;
+    read_inode(target_inode, &inode);
+    
+    // Check if it's a directory
+    if (!(inode.i_mode & EXT2_S_IFDIR)) {
+        frame.cpu.general.eax = 2; // Error - not a directory
+        break;
+    }
+    
+    // Success - it's a valid directory
+    frame.cpu.general.eax = 0; // Success
+}
+  break;
   case 22: // SYS_LIST_DIR
 {
     // Dapatkan ALAMAT pointer dari userspace yang dikirim melalui ebx
@@ -255,10 +278,7 @@ void syscall(struct InterruptFrame frame)
 
     // --- HAPUS PENCETAKAN HEADER DI SINI ---
     // Karena header sudah dicetak oleh handle_ls di userspace
-    /*
-    const uint8_t col_name = 0;
-    const uint8_t col_type = 20;
-    const uint8_t col_size = 27;
+    
     char header1[] = "name                type   size";
     for (int k = 0; header1[k] != '\0'; k++) {
         framebuffer_write(current_print_row, k, header1[k], 0x0F, 0x00);
@@ -277,7 +297,7 @@ void syscall(struct InterruptFrame frame)
         frame.cpu.general.eax = current_print_row;
         goto end_list_dir_syscall_modified;
     }
-    */
+    
 
     // Lanjutkan dengan membaca direktori dan mencetak entri
     struct EXT2Inode dir_inode;
@@ -350,8 +370,11 @@ void syscall(struct InterruptFrame frame)
     *(uint32_t*)(user_row_ptr_addr) = current_print_row;
 
     end_list_dir_syscall_modified:;
-    framebuffer_set_cursor(current_print_row, 0); // Set kursor kernel
-    frame.cpu.general.eax = current_print_row;    // Kembalikan baris berikutnya yang tersedia via EAX
+    framebuffer_set_cursor(current_print_row, 0);
+
+    // CRITICAL FIX: Update the user space pointer AND return value consistently
+    *(uint32_t*)(user_row_ptr_addr) = current_print_row;
+    frame.cpu.general.eax = current_print_row;
 }
 break;
 

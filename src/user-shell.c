@@ -14,7 +14,7 @@
 
 // Global current working directory
 char current_working_directory[MAX_PATH_LENGTH] = "/";
-
+extern int current_output_row;
 struct Time {
     uint8_t hour;
     uint8_t minute;
@@ -80,7 +80,7 @@ void get_time_string(char* buffer) {
 }
 
 // Function to process commands
-void process_command(char* command_buffer, int* current_row_ptr) {
+void process_command(char* command_buffer) {
     // With strtok disallowed, simple command parsing (command + one arg) is the only option.
     // If command_buffer contains spaces, this will treat the whole thing as one command name.
     // Full UNIX-like command parsing is not possible under these constraints.
@@ -116,49 +116,43 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         if (arg1) {
             handle_cd(arg1);
         } else {
-            int b = 0;
-            print_string("cd: missing argument", current_row_ptr, &b);
+            print_line("cd: missing argument");
         }
     } else if (strcmp(command_name, "ls") == 0) {
         handle_ls();
+        return;
     } else if (strcmp(command_name, "mkdir") == 0) {
         if (arg1) {
             handle_mkdir(arg1);
         } else {
-            int b = 0;
-            print_string("mkdir: missing argument", current_row_ptr, &b);
+            print_line("mkdir: missing argument");
         }
     } else if (strcmp(command_name, "cat") == 0) {
         if (arg1) {
             handle_cat(arg1);
         } else {
-            int b = 0;
-            print_string("cat: missing argument", current_row_ptr, &b);
+            print_line("cat: missing argument");
         }
     } else if (strcmp(command_name, "cp") == 0) {
         // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("cp: requires two arguments, not supported with current string functions.", current_row_ptr, 0);
+        // print_string("cp: requires two arguments, not supported with current string functions.", current_row_ptr, 0);
     } else if (strcmp(command_name, "rm") == 0) {
         if (arg1) {
             handle_rm(arg1);
         } else {
-            int b = 0;
-            print_string("rm: missing argument", current_row_ptr, &b);
+            print_line("cp: missing argument");
         }
     } else if (strcmp(command_name, "mv") == 0) {
-        int b = 0;
-        // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("mv: requires two arguments, not supported with current string functions.", current_row_ptr, &b);
+       print_line("mv: missing argument");
     } else if (strcmp(command_name, "find") == 0) {
         if (arg1) {
             handle_find(arg1);
         } else {
-            int b = 0;
-            print_string("find: missing argument", current_row_ptr, &b);
+            print_line("find: missing argument");
         }
     } else if (strcmp(command_name, "beep") == 0) { // Tambahkan perintah beep
         int b = 0;
-        print_string("Playing beep...", current_row_ptr, &b);
+        print_string("Playing beep...", &current_output_row, &b);
         speaker_play(BEEP_FREQUENCY);
         // Tambahkan delay sederhana
         // for (volatile int d = 0; d < BEEP_DURATION_LOOPS; d++);
@@ -166,25 +160,25 @@ void process_command(char* command_buffer, int* current_row_ptr) {
     } else if (strcmp(command_name, "stop_sound") == 0) {
         speaker_stop();
         int b = 0;
-        print_string("Sound stopped.", current_row_ptr, &b);
+        print_string("Sound stopped.", &current_output_row, &b);
     } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
         int b = 0;
-        print_string("Goodbye!", current_row_ptr, &b);
+        print_string("Goodbye!", &current_output_row, &b);
         // This will only be executed if 'exit' is the only thing typed.
         // It's technically unreachable now due to the main loop's check.
     } else if (strcmp(command_name, "clock") == 0) { // Clock also handled directly
         int b = 0;
-        print_string("Clock running...", current_row_ptr, &b);
+        print_string("Clock running...", &current_output_row, &b);
         // It's technically unreachable now due to the main loop's check.
     }
     else {
         int b = 0;
-        print_string("Unknown command: ", current_row_ptr, &b);
+        print_string("Unknown command: ", &current_output_row, &b);
         int a = (int)strlen("Unknown command: ");
-        print_string(command_name, current_row_ptr, &a);
+        print_string(command_name, &current_output_row, &a);
     }
 
-    (*current_row_ptr) += 1;
+    current_output_row += 1;
 }
 
 
@@ -193,9 +187,9 @@ int main(void)
     // syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
     // return 0;
     char buffer[COMMAND_BUFFER_SIZE];
-    int current_row = 0;
+    // HAPUS `int current_row = 0;` (sekarang menggunakan global current_output_row)
     int buffer_pos = 0;
-    int cursor_col = 0;
+    int cursor_col_for_input = 0; // Variabel untuk melacak kolom kursor input
     bool exit_shell = false;
     bool clock_enabled = false;
     syscall(7, 0, 0, 0); // Activate keyboard
@@ -221,10 +215,12 @@ int main(void)
 
         char prompt[MAX_PATH_LENGTH+15];
         int b = 0;
-        print_string("luma@os:~$ ", &current_row, &b);
-        strcat(prompt, current_working_directory);
-        cursor_col = 11 + strlen(current_working_directory);
-        set_cursor(cursor_col, &current_row);
+        print_string("luma@os:~$ ", &current_output_row, &cursor_col_for_input); // Gunakan global dan update col
+        strcat(prompt, current_working_directory); // Prompt string
+        // Perbaiki cursor_col_for_input setelah mencetak path
+        cursor_col_for_input = 11 + strlen(current_working_directory);
+        set_cursor(cursor_col_for_input, current_output_row); // Gunakan global
+
         buffer_pos = 0;
         for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) buffer[i] = '\0';
         while (!input_ready) {
@@ -260,58 +256,47 @@ int main(void)
             }
             if (c == '\n' || c == '\r') {
                 buffer[buffer_pos] = '\0';
-                if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'i' && buffer[3] == 't' && buffer[4] == '\0') {
-                    current_row++;
-                    int b = 0;
-                    print_string("Goodbye!", &current_row, &b);
-                    exit_shell = true;
-                }
-                if (buffer[0] == 'c' && buffer[1] == 'l' && buffer[2] == 'o' && buffer[3] == 'c' && buffer[4] == 'k' && buffer[5] == '\0') {
-                    clock_enabled = true;
-                    current_row++;
-                    int b = 0;
-                    print_string("Clock running...", &current_row, &b);
-                    current_row++;
+                    current_output_row++; // Majukan baris untuk output perintah
+
+                    if (strcmp(buffer, "exit") == 0) {
+                        print_line("Goodbye!");
+                        exit_shell = true;
+                    } else if (strcmp(buffer, "clock") == 0) {
+                        clock_enabled = true;
+                        print_line("Clock running...");
+                    } else {
+                        process_command(buffer); // Panggil tanpa argumen row
+                    }
+                    // Setelah perintah selesai, baris output terakhir sudah di current_output_row
+                    cursor_col_for_input = 0; // Reset kolom kursor untuk prompt baru
+                    // current_output_row sudah diupdate oleh process_command/handle_ls.
+                    // Tidak perlu increment lagi di sini.
                     break;
-                }
-                if (!exit_shell) {
-                    process_command(buffer, &current_row);
-                }
-                set_cursor(cursor_col, current_row);
-                current_row++;
-                break;
             } else if (c == '\b' || c == 127) {
-                if (buffer_pos > 0 && cursor_col > 11) {
-                    buffer_pos--;
-                    cursor_col--;
-                    buffer[buffer_pos] = '\0';
-                    print_char(' ', current_row, cursor_col);
-                    set_cursor(cursor_col, current_row);
+                if (buffer_pos > 0 && cursor_col_for_input > 11 + strlen(current_working_directory)) { // Pastikan tidak menghapus prompt
+                        buffer_pos--;
+                        cursor_col_for_input--;
+                        buffer[buffer_pos] = '\0';
+                        print_char(' ', &current_output_row, &cursor_col_for_input); // Hapus karakter
+                        set_cursor(cursor_col_for_input, current_output_row);
                 }
-            } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) {
-                buffer[buffer_pos] = c;
-                buffer_pos++;
-                print_char(c, current_row, cursor_col);
-                cursor_col++;
-                set_cursor(cursor_col, current_row);
-                if (cursor_col >= 80) {
-                    current_row++;
-                    cursor_col = 0;
-                    set_cursor(cursor_col, current_row);
+            } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) { // Karakter biasa
+                    buffer[buffer_pos] = c;
+                    buffer_pos++;
+                    print_char(c, &current_output_row, &cursor_col_for_input); // Cetak karakter dan update kolom
+                    set_cursor(cursor_col_for_input, current_output_row);
                 }
-            }
             // Ambil input berikutnya (polling)
             c = 0;
             syscall(4, (uint32_t)&c, 0, 0);
             for (volatile int d = 0; d < 10000; d++);
         }
-        if (current_row >= 24) {
-            clear_screen();
-            current_row = 2;
-            int a = 0;
-            int b = 0;
-            print_string("LumaOS Shell v1.0", &a, &b);
-            print_string("--- Screen cleared due to overflow ---", 1, 0);
+        if (current_output_row >= 24) {
+            clear_screen(); // Syscall 8
+            current_output_row = 2; // Mulai prompt setelah 2 baris header clear screen
+            print_string("LumaOS Shell v1.0", &current_output_row, &cursor_col_for_input); // Cetak dan update baris/kolom
+            print_string("--- Screen cleared due to overflow ---", &current_output_row, &cursor_col_for_input); // Cetak dan update baris/kolom
+            // current_output_row sudah di-increment oleh print_string
         }
     }
     return 0;
