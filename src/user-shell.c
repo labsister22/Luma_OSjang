@@ -230,21 +230,27 @@ int main(void)
         char c = 0;
         char time_str[9];
         get_time_string(time_str);
-        if (clock_enabled) {
-            if (strcmp(time_str, last_time) != 0) {
-                int a = 24;
-                int b = 70;
-                print_string(time_str, &a, &b);
-                for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
-            }
-        }
+        // if (clock_enabled) {
+        //     if (strcmp(time_str, last_time) != 0) {
+        //         int a = 24;
+        //         int b = 70;
+        //         print_string(time_str, &a, &b);
+        //         for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
+        //     }
+        // }
 
-        char prompt[MAX_PATH_LENGTH+15];
-        print_string("luma@os:~$ ", &current_output_row, &cursor_col_for_input); // Gunakan global dan update col
-        strcat(prompt, current_working_directory); // Prompt string
-        // Perbaiki cursor_col_for_input setelah mencetak path
-        cursor_col_for_input = 11 + strlen(current_working_directory);
-        set_cursor(cursor_col_for_input, current_output_row); // Gunakan global
+        int temp_col = 0; // Reset kolom sementara untuk prompt
+        // Cetak "luma@os:"
+        print_string("luma@os:", &current_output_row, &temp_col);
+        // Cetak current_working_directory
+        print_string(current_working_directory, &current_output_row, &temp_col);
+        // Cetak "$ "
+        print_string("$ ", &current_output_row, &temp_col);
+
+        // Update cursor_col_for_input berdasarkan panjang prompt yang sudah dicetak
+        cursor_col_for_input = temp_col; // temp_col sudah berisi posisi kolom akhir setelah mencetak prompt
+
+        set_cursor(cursor_col_for_input, current_output_row); // Set kursor untuk input
 
         buffer_pos = 0;
         for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) buffer[i] = '\0';
@@ -298,18 +304,14 @@ int main(void)
                     // Tidak perlu increment lagi di sini.
                     break;
             } else if (c == '\b' || c == 127) {
-                if (buffer_pos > 0 && cursor_col_for_input > 11 + (int)strlen(current_working_directory)) {
+                int prompt_full_len = strlen("luma@os:") + strlen(current_working_directory) + strlen("$ ");
+                
+                if (buffer_pos > 0 && cursor_col_for_input > prompt_full_len) {
                     buffer_pos--;
                     cursor_col_for_input--;
                     buffer[buffer_pos] = '\0';
-                    
-                    // Move cursor back first, then overwrite with space
                     set_cursor(cursor_col_for_input, current_output_row);
-                    
-                    // Write space without using print_char (to avoid auto-increment)
                     syscall(5, (uint32_t)' ', cursor_col_for_input, current_output_row);
-                    
-                    // Keep cursor at the correct position
                     set_cursor(cursor_col_for_input, current_output_row);
                 }
             } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) { // Karakter biasa
