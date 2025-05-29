@@ -1313,11 +1313,23 @@ void handle_kill(const char* pid_str) {
         return;
     }
     
+    // Check if trying to kill speaker process
+    struct ProcessControlBlock pcb_list[PROCESS_COUNT_MAX];
+    int process_count = 0;
+    user_syscall(31, (uint32_t)pcb_list, (uint32_t)&process_count, 0);
+    
+    for (int i = 0; i < process_count; i++) {
+        if ((int)pcb_list[i].metadata.pid == pid && 
+            strcmp(pcb_list[i].metadata.name, "beep") == 0) {
+            // This is the speaker process - turn off speaker
+            speaker_stop();
+        }
+    }
+    
     // Call kill user_syscall
     bool result = false;
     user_syscall(32, (uint32_t)pid, (uint32_t)&result, 0);
     
-    // PERBAIKAN: Fixed result message positioning
     current_output_row++;
     if (result) {
         print_string("Process ", current_output_row, 0);
@@ -1330,4 +1342,3 @@ void handle_kill(const char* pid_str) {
     }
     current_output_row++;
 }
-// ...existing code...
