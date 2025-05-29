@@ -200,38 +200,52 @@ int handle_ls(int current_row) {
     return current_output_row + 2;
 }
 
+// ...existing code...
+
 void handle_mkdir(const char* name, int current_row) {
     if (!name || strlen(name) == 0) {
-        print_string("mkdir: missing directory name", current_row + 1, 0);
+        print_string("mkdir: missing argument\n", current_row + 1, 0);
         return;
     }
     
-    // Check if directory already exists
-    uint32_t existing_inode = find_inode_by_name(current_inode, name);
-    if (existing_inode != 0) {
-        print_string("mkdir: directory already exists", current_row + 1, 0);
-        return;
-    }
-    
-    // Prepare create directory request
     struct EXT2DriverRequest request;
-    request.buf = NULL;
-    strcpy(request.name, name);
-    request.name_len = strlen(name);
+    memset(&request, 0, sizeof(request));
+    
     request.parent_inode = current_inode;
-    request.buffer_size = 0;
+    request.name_len = strlen(name);
     request.is_directory = 1;
+    request.buffer_size = 0;
+    request.buf = NULL;
     
-    // Create directory using syscall 24
+    // Copy nama
+    size_t copy_len = strlen(name);
+    if (copy_len >= sizeof(request.name)) {
+        copy_len = sizeof(request.name) - 1;
+    }
+    for (size_t i = 0; i < copy_len; i++) {
+        request.name[i] = name[i];
+    }
+    request.name[copy_len] = '\0';
+    
     int8_t result;
-    syscall(18, (uint32_t)&request, (uint32_t)&result, 0);
+    syscall(24, (uint32_t)&request, (uint32_t)&result, 0);
     
+    // Better error messages
     if (result == 0) {
-        print_string("mkdir: directory created successfully", current_row + 1, 0);
+        print_string("Directory created: ", current_row + 1, 0);
+        print_string(name, current_row + 1, 19);
+        print_string("\n", current_row + 1, 19 + strlen(name));
+    } else if (result == 1) {
+        print_string("mkdir: directory '", current_row + 1, 0);
+        print_string(name, current_row + 1, 18);
+        print_string("' already exists\n", current_row + 1, 18 + strlen(name));
+    } else if (result == 2) {
+        print_string("mkdir: parent is not a directory\n", current_row + 1, 0);
     } else {
-        print_string("mkdir: failed to create directory", current_row + 1, 0);
+        print_string("mkdir: failed to create directory\n", current_row + 1, 0);
     }
 }
+// ...existing code...
 
 void handle_cat(const char* filename, int current_row) {
     print_string("cat: Not implemented. No suitable kernel syscall for file reading.", current_row+1, 0);
