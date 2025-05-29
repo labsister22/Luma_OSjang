@@ -17,7 +17,7 @@ void handle_cat(const char* filename, int current_row);
 void handle_cp(const char* source, const char* destination, int current_row);
 void handle_rm(const char *path, int current_row);
 void handle_mv(const char* source, const char* destination, int current_row);
-void handle_find(const char* name, int current_row);
+void handle_find(const char* name, int* current_row);
 
 // Utility functions (from user-shell.c / shared)
 void print_string(const char* str, int row, int col);

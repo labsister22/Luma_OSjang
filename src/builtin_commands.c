@@ -110,6 +110,8 @@ uint32_t resolve_path_display(char* resolved_path, const char* path) {
     return 2; // Root inode
 }
 
+// ...existing code...
+
 uint32_t find_inode_by_name(uint32_t parent_inode, const char* name) {
     struct EXT2Inode dir_inode;
     read_inode(parent_inode, &dir_inode);
@@ -118,32 +120,53 @@ uint32_t find_inode_by_name(uint32_t parent_inode, const char* name) {
         return 0; // Not a directory
     }
     
+    // PERBAIKAN: Gunakan logical block iteration dengan indirection support
+    uint32_t name_len = strlen(name);
     uint8_t block_buffer[BLOCK_SIZE];
-    for (uint32_t i = 0; i < dir_inode.i_blocks && i < 12; i++) {
-        if (dir_inode.i_block[i] == 0) continue;
+    
+    // Iterate through ALL blocks (dengan indirection support)
+    uint32_t total_blocks = (dir_inode.i_size + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    
+    for (uint32_t logical_block = 0; logical_block < total_blocks; logical_block++) {
+        // PERBAIKAN: Gunakan get_physical_block_from_logical untuk indirection
+        uint32_t physical_block = get_physical_block_from_logical(&dir_inode, logical_block);
         
-        read_blocks(block_buffer, dir_inode.i_block[i], 1);
+        if (physical_block == 0) continue; // Sparse block atau tidak dialokasi
+        
+        read_blocks(block_buffer, physical_block, 1);
         
         uint32_t offset = 0;
         while (offset < BLOCK_SIZE) {
             struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(block_buffer + offset);
             
-            if (entry->inode == 0 || entry->rec_len == 0) break;
-            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            // PERBAIKAN: Better validation
+            if (entry->rec_len == 0 || entry->rec_len < sizeof(struct EXT2DirectoryEntry)) {
+                break; // Invalid entry
+            }
             
-            const char* entry_name = (const char*)(entry + 1);
+            if (offset + entry->rec_len > BLOCK_SIZE) {
+                break; // Entry extends beyond block
+            }
             
-            // Compare names
-            if (entry->name_len == strlen(name)) {
-                int match = 1;
-                for (uint8_t k = 0; k < entry->name_len; k++) {
-                    if (entry_name[k] != name[k]) {
-                        match = 0;
-                        break;
+            // Skip deleted entries
+            if (entry->inode != 0 && entry->name_len > 0) {
+                // PERBAIKAN: Compare name length first
+                if (entry->name_len == name_len) {
+                    const char* entry_name = (const char*)(entry + 1);
+                    
+                    // PERBAIKAN: Bounds check untuk name comparison
+                    if (offset + sizeof(struct EXT2DirectoryEntry) + entry->name_len <= BLOCK_SIZE) {
+                        int match = 1;
+                        for (uint32_t k = 0; k < name_len; k++) {
+                            if (entry_name[k] != name[k]) {
+                                match = 0;
+                                break;
+                            }
+                        }
+                        if (match) {
+                            return entry->inode;
+                        }
                     }
-                }
-                if (match) {
-                    return entry->inode;
                 }
             }
             
@@ -153,6 +176,7 @@ uint32_t find_inode_by_name(uint32_t parent_inode, const char* name) {
     
     return 0; // Not found
 }
+// ...existing code...
 
 // Perbaiki handle_cd
 void handle_cd(const char* path, int current_row) {
@@ -262,9 +286,60 @@ void handle_cp(const char* source, const char* destination, int current_row) {
 }
 
 void handle_rm(const char* path, int current_row) {
-    print_string("rm: Not implemented. No kernel syscall for removing files/directories.", current_row+1, 0);
-    (void)path;
-    (void)current_row;
+    if (!path || strlen(path) == 0) {
+        print_string("rm: missing file/directory name", current_row + 1, 0);
+        return;
+    }
+    
+    // Find file/directory inode
+    uint32_t target_inode = find_inode_by_name(current_inode, path);
+    if (target_inode == 0) {
+        print_string("rm: file/directory not found", current_row + 1, 0);
+        return;
+    }
+    
+    // Check if it's a directory or file
+    struct EXT2Inode inode;
+    read_inode(target_inode, &inode);
+    
+    // Prepare delete request
+    struct EXT2DriverRequest request;
+    request.buf = NULL;
+    
+    // Manual string copy to avoid strncpy
+    uint32_t path_len = strlen(path);
+    uint32_t max_copy = sizeof(request.name) - 1;
+    if (path_len < max_copy) max_copy = path_len;
+    
+    for (uint32_t i = 0; i < max_copy; i++) {
+        request.name[i] = path[i];
+    }
+    request.name[max_copy] = '\0'; // Null terminate
+    
+    request.name_len = path_len;
+    request.parent_inode = current_inode;
+    request.buffer_size = 0;
+    request.is_directory = (inode.i_mode & EXT2_S_IFDIR) ? 1 : 0;
+    
+    int8_t result;
+    
+    if (request.is_directory) {
+        // Delete directory using syscall 26
+        syscall(26, (uint32_t)&request, (uint32_t)&result, 0);
+        if (result == 0) {
+            print_string("rm: directory removed successfully", current_row + 1, 0);
+        } else {
+            print_string("rm: failed to remove directory", current_row + 1, 0);
+        }
+    } else {
+        // Delete file using syscall 25
+        syscall(25, (uint32_t)&request, (uint32_t)&result, 0);
+        if (result == 0) {
+            print_string("rm: file removed successfully", current_row + 1, 0);
+        } else {
+            print_string("rm: failed to remove file", current_row + 1, 0);
+        }
+    }
 }
 
 void handle_mv(const char* source, const char* destination, int current_row) {
@@ -275,8 +350,298 @@ void handle_mv(const char* source, const char* destination, int current_row) {
     (void)current_row;
 }
 
-void handle_find(const char* name, int current_row) {
-    print_string("find: Not implemented. No kernel syscall for recursive file search.", current_row+1, 0);
-    (void)name;
-    (void)current_row;
+void itoa(int value, char* str) {
+    char buf[16];
+    int i = 0, j = 0;
+    if (value == 0) {
+        str[0] = '0'; str[1] = '\0'; return;
+    }
+    if (value < 0) {
+        str[j++] = '-';
+        value = -value;
+    }
+    while (value > 0) {
+        buf[i++] = (value % 10) + '0';
+        value /= 10;
+    }
+    while (i > 0) str[j++] = buf[--i];
+    str[j] = '\0';
+}
+
+void find_recursive(uint32_t curr_inode, const char* search_name, char* path, int* found, int* current_row) {
+    // Enhanced safety checks
+    if (*found || curr_inode == 0 || search_name == NULL || path == NULL || current_row == NULL) {
+        return;
+    }
+    
+    // Prevent deep recursion with static counter
+    static int recursion_depth = 0;
+    if (recursion_depth > 10) { // Increased recursion depth for deeper directories
+        return;
+    }
+    recursion_depth++;
+
+    // Validate search_name is not empty
+    if (search_name[0] == '\0') {
+        recursion_depth--;
+        return;
+    }
+
+    struct EXT2Inode dir_inode;
+    // Manual clear to avoid memset issues
+    char* inode_ptr = (char*)&dir_inode;
+    for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+        inode_ptr[i] = 0;
+    }
+    
+    // Use syscall to read inode safely
+    syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
+
+    // Enhanced inode validation - Check if it's a directory
+    if (dir_inode.i_size == 0 || dir_inode.i_size > 65536 || 
+        !(dir_inode.i_mode & 0x4000) || dir_inode.i_block[0] == 0) {
+        recursion_depth--;
+        return;
+    }
+
+    // Allocate buffer on stack with clear initialization
+    uint8_t buf[1024]; // Increased buffer size for larger directories
+    for (unsigned int i = 0; i < 1024; i++) {
+        buf[i] = 0;
+    }
+    
+    // Read directory block safely
+    syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1);
+
+    uint32_t offset = 0;
+    int entries_processed = 0;
+    const int MAX_ENTRIES = 50; // Increased max entries
+    
+    while (offset < 1000 && !(*found) && entries_processed < MAX_ENTRIES) { // Leave 24 bytes buffer
+        // Bounds check before accessing
+        if (offset + sizeof(struct EXT2DirectoryEntry) > 1024) {
+            break;
+        }
+        
+        struct EXT2DirectoryEntry* entry = (struct EXT2DirectoryEntry*)(buf + offset);
+
+        // Enhanced validation
+        if (entry->rec_len == 0 || entry->rec_len < 8 || 
+            entry->rec_len > 500 || offset + entry->rec_len > 1024) {
+            break;
+        }
+        
+        if (entry->inode == 0 || entry->name_len == 0 || entry->name_len > 255) {
+            offset += entry->rec_len;
+            entries_processed++;
+            continue;
+        }
+
+        // Safe name extraction with multiple bounds checks
+        char entry_name[256]; // Standard EXT2 filename max length
+        char* name_ptr = (char*)(entry + 1);
+        unsigned int name_len = (unsigned int)entry->name_len;
+        
+        // Multiple safety checks
+        if (name_len > 255) name_len = 255;
+        if (offset + sizeof(struct EXT2DirectoryEntry) + name_len > 1024) {
+            name_len = 1024 - offset - sizeof(struct EXT2DirectoryEntry);
+            if (name_len > 255) name_len = 255;
+        }
+        
+        // Manual copy with extra bounds checking
+        for (unsigned int i = 0; i < name_len; i++) {
+            if (offset + sizeof(struct EXT2DirectoryEntry) + i >= 1024) {
+                name_len = i;
+                break;
+            }
+            if (i >= 255) {
+                name_len = i;
+                break;
+            }
+            entry_name[i] = name_ptr[i];
+        }
+        entry_name[name_len] = '\0';
+
+        // Skip . and .. with exact comparison
+        if ((name_len == 1 && entry_name[0] == '.') ||
+            (name_len == 2 && entry_name[0] == '.' && entry_name[1] == '.')) {
+            offset += entry->rec_len;
+            entries_processed++;
+            continue;
+        }
+
+        // Safe string comparison
+        unsigned int search_len = 0;
+        while (search_name[search_len] != '\0' && search_len < 255) {
+            search_len++;
+        }
+        
+        int match = (search_len == name_len && search_len > 0);
+        for (unsigned int i = 0; match && i < search_len; i++) {
+            if (search_name[i] != entry_name[i]) {
+                match = 0;
+            }
+        }
+
+        if (match) {
+            // Build result path with safety
+            char result_path[512];
+            unsigned int path_pos = 0;
+            
+            // Copy current path with bounds check
+            while (path[path_pos] != '\0' && path_pos < 400) {
+                result_path[path_pos] = path[path_pos];
+                path_pos++;
+            }
+            
+            // Add separator if needed
+            if (path_pos > 1 || path[0] != '/') {
+                if (path_pos < 510) {
+                    result_path[path_pos++] = '/';
+                }
+            }
+            
+            // Add entry name
+            for (unsigned int i = 0; i < name_len && path_pos < 511; i++) {
+                result_path[path_pos++] = entry_name[i];
+            }
+            result_path[path_pos] = '\0';
+
+            // Check if it's a directory or file and display accordingly
+            struct EXT2Inode found_inode;
+            char* found_ptr = (char*)&found_inode;
+            for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+                found_ptr[i] = 0;
+            }
+            syscall(21, (uint32_t)&found_inode, entry->inode, 0);
+            
+            // Safe output with screen bounds
+            (*current_row)++;
+            if (*current_row < 22) { // Leave more margin
+                if (found_inode.i_mode & 0x4000) {
+                    print_string("FOUND DIR: ", *current_row, 0);
+                    print_string(result_path, *current_row, 11);
+                } else {
+                    print_string("FOUND FILE: ", *current_row, 0);
+                    print_string(result_path, *current_row, 12);
+                }
+            }
+            *found = 1;
+            recursion_depth--;
+            return;
+        }
+
+        // Safe recursion into subdirectories - REMOVED inode number restrictions
+        if (entry->inode != curr_inode && entry->inode > 1) { // Only check if not current dir and valid
+            struct EXT2Inode child_inode;
+            char* child_ptr = (char*)&child_inode;
+            for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+                child_ptr[i] = 0;
+            }
+            
+            syscall(21, (uint32_t)&child_inode, entry->inode, 0);
+            
+            // Enhanced child validation - Check if it's a directory
+            if ((child_inode.i_mode & 0x4000) == 0x4000 && 
+                child_inode.i_size > 0 && child_inode.i_size < 65536 &&
+                child_inode.i_block[0] != 0) {
+                
+                // Build new path for recursion with safety
+                char new_path[512];
+                unsigned int new_path_pos = 0;
+                
+                // Copy current path
+                while (path[new_path_pos] != '\0' && new_path_pos < 400) {
+                    new_path[new_path_pos] = path[new_path_pos];
+                    new_path_pos++;
+                }
+                
+                // Add separator if needed
+                if (new_path_pos > 1 || path[0] != '/') {
+                    if (new_path_pos < 510) {
+                        new_path[new_path_pos++] = '/';
+                    }
+                }
+                
+                // Add entry name
+                for (unsigned int i = 0; i < name_len && new_path_pos < 511; i++) {
+                    new_path[new_path_pos++] = entry_name[i];
+                }
+                new_path[new_path_pos] = '\0';
+
+                // Safe recursive call
+                find_recursive(entry->inode, search_name, new_path, found, current_row);
+            }
+        }
+
+        offset += entry->rec_len;
+        entries_processed++;
+    }
+    
+    recursion_depth--;
+}
+
+void handle_find(const char* filename, int* current_row) {
+    // Enhanced input validation
+    if (filename == NULL || filename[0] == '\0' || current_row == NULL) {
+        if (current_row != NULL) {
+            (*current_row)++;
+            if (*current_row < 23) {
+                print_string("find: usage: find <filename>", *current_row, 0);
+            }
+        }
+        return;
+    }
+    
+    // Validate filename length and content
+    unsigned int filename_len = 0;
+    while (filename[filename_len] != '\0' && filename_len < 255) {
+        // Check for valid filename characters
+        char c = filename[filename_len];
+        if (c < 32 || c > 126) {
+            (*current_row)++;
+            if (*current_row < 23) {
+                print_string("find: invalid character in filename", *current_row, 0);
+            }
+            return;
+        }
+        filename_len++;
+    }
+    
+    if (filename_len == 0 || filename_len > 255) {
+        (*current_row)++;
+        if (*current_row < 23) {
+            print_string("find: invalid filename length", *current_row, 0);
+        }
+        return;
+    }
+    
+    // Check for screen space
+    if (*current_row >= 18) { // Leave more room for results
+        (*current_row)++;
+        if (*current_row < 23) {
+            print_string("find: insufficient screen space", *current_row, 0);
+        }
+        return;
+    }
+    
+    (*current_row)++;
+    if (*current_row < 23) {
+        print_string("Searching for: ", *current_row, 0);
+        print_string(filename, *current_row, 15);
+    }
+
+    char root_path[3] = {'/', '\0', '\0'}; // Extra null for safety
+    int found = 0;
+    
+    // Safe call to find_recursive
+    find_recursive(2, filename, root_path, &found, current_row);
+
+    if (!found) {
+        (*current_row)++;
+        if (*current_row < 23) {
+            print_string("File or directory not found", *current_row, 0);
+        }
+    }
 }

@@ -146,7 +146,7 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
     } else if (strcmp(command_name, "find") == 0) {
         if (arg1) {
-            handle_find(arg1, *current_row_ptr);
+            handle_find(arg1, current_row_ptr);
         } else {
             print_string("find: missing argument", *current_row_ptr+1, 0);
         }
