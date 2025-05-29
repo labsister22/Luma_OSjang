@@ -4,13 +4,12 @@
 #include <stdbool.h>
 #include "header/stdlib/string.h" // Now strictly adhering to provided functions only
 #include "header/shell/builtin_commands.h"
-#include "header/driver/speaker.h"
 
 #define COMMAND_BUFFER_SIZE 128
 #define MAX_PATH_LENGTH 256
 
-#define BEEP_FREQUENCY 440  // Frekuensi untuk nada A4
-// #define BEEP_DURATION_LOOPS 500000 
+
+// #define BEEP_DURATION_LOOPS 500000
 
 // Global current working directory
 char current_working_directory[MAX_PATH_LENGTH] = "/";
@@ -36,7 +35,7 @@ int simple_atoi(const char* str) {
     return res;
 }
 
-void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
+void user_syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
 {
     __asm__ volatile("mov %0, %%ebx" : : "r"(ebx));
     __asm__ volatile("mov %0, %%ecx" : : "r"(ecx));
@@ -45,24 +44,24 @@ void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
     __asm__ volatile("int $0x30");
 }
 void clear_screen() {
-    syscall(8, 0, 0, 0);
+    user_syscall(8, 0, 0, 0);
 }
 
 void set_cursor(int col, int row) {
-    syscall(9, col, row, 0);
+    user_syscall(9, col, row, 0);
 }
 
 char get_char() {
     char c = 0;
     do {
-        syscall(4, (uint32_t)&c, 0, 0);
+        user_syscall(4, (uint32_t)&c, 0, 0);
         for (volatile int i = 0; i < 100; i++);
     } while (c == 0);
     return c;
 }
 
 void get_time(struct Time* t) {
-    syscall(10, (uint32_t)t, 0, 0);
+    user_syscall(10, (uint32_t)t, 0, 0);
 }
 
 void get_time_string(char* buffer) {
@@ -77,6 +76,34 @@ void get_time_string(char* buffer) {
     buffer[6] = '0' + (t.second / 10);
     buffer[7] = '0' + (t.second % 10);
     buffer[8] = '\0';
+}
+
+// Helper function untuk parse dua argument
+void parse_two_arguments(const char* input, char* arg1, char* arg2) {
+    int i = 0, j = 0;
+    
+    // Clear buffers
+    arg1[0] = '\0';
+    arg2[0] = '\0';
+    
+    // Skip leading spaces
+    while (input[i] == ' ' && input[i] != '\0') i++;
+    
+    // Parse first argument
+    while (input[i] != ' ' && input[i] != '\0' && j < 63) {
+        arg1[j++] = input[i++];
+    }
+    arg1[j] = '\0';
+    
+    // Skip spaces between arguments
+    while (input[i] == ' ' && input[i] != '\0') i++;
+    
+    // Parse second argument
+    j = 0;
+    while (input[i] != '\0' && j < 63) {
+        arg2[j++] = input[i++];
+    }
+    arg2[j] = '\0';
 }
 
 // Function to process commands
@@ -133,8 +160,19 @@ void process_command(char* command_buffer, int* current_row_ptr) {
             print_string("cat: missing argument", *current_row_ptr+1, 0);
         }
     } else if (strcmp(command_name, "cp") == 0) {
-        // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("cp: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
+        // PERBAIKAN: Implementasi cp dengan two arguments
+        if (arg1) {
+            char source[64], destination[64];
+            parse_two_arguments(arg1, source, destination);
+            
+            if (strlen(source) > 0 && strlen(destination) > 0) {
+                handle_cp(source, destination, *current_row_ptr);
+            } else {
+                print_string("cp: usage: cp <source> <destination>", *current_row_ptr+1, 0);
+            }
+        } else {
+            print_string("cp: missing arguments", *current_row_ptr+1, 0);
+        }
     } else if (strcmp(command_name, "rm") == 0) {
         if (arg1) {
             handle_rm(arg1, *current_row_ptr);
@@ -142,13 +180,40 @@ void process_command(char* command_buffer, int* current_row_ptr) {
             print_string("rm: missing argument", *current_row_ptr+1, 0);
         }
     } else if (strcmp(command_name, "mv") == 0) {
-        // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
+        if (arg1) {
+            char source[64], destination[64];
+            parse_two_arguments(arg1, source, destination);
+            
+            if (strlen(source) > 0 && strlen(destination) > 0) {
+                handle_mv(source, destination);
+            } else {
+                print_string("mv: usage: mv <source> <destination>", *current_row_ptr+1, 0);
+            }
+        } else {
+            print_string("mv: missing arguments", *current_row_ptr+1, 0);
+        }
     } else if (strcmp(command_name, "find") == 0) {
         if (arg1) {
             handle_find(arg1, current_row_ptr);
         } else {
             print_string("find: missing argument", *current_row_ptr+1, 0);
+        }
+    } else if (strcmp(command_name, "exec") == 0) {
+        // TAMBAHAN: Handle exec command
+        if (arg1) {
+            handle_exec(arg1);
+        } else {
+            print_string("exec: missing argument", *current_row_ptr+1, 0);
+        }
+    } else if (strcmp(command_name, "ps") == 0) {
+        // TAMBAHAN: Handle ps command (no arguments needed)
+        handle_ps();
+    } else if (strcmp(command_name, "kill") == 0) {
+        // TAMBAHAN: Handle kill command
+        if (arg1) {
+            handle_kill(arg1);
+        } else {
+            print_string("kill: missing argument (usage: kill <pid>)", *current_row_ptr+1, 0);
         }
     } else if (strcmp(command_name, "beep") == 0) { // Tambahkan perintah beep
         print_string("Playing beep...", *current_row_ptr + 1, 0);
@@ -156,7 +221,7 @@ void process_command(char* command_buffer, int* current_row_ptr) {
         // Tambahkan delay sederhana
         // for (volatile int d = 0; d < BEEP_DURATION_LOOPS; d++);
         // speaker_stop();
-    } else if (strcmp(command_name, "stop_sound") == 0) {
+    } else if (strcmp(command_name, "stop") == 0) {
         speaker_stop();
         print_string("Sound stopped.", *current_row_ptr + 1, 0);
     } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
@@ -178,7 +243,7 @@ void process_command(char* command_buffer, int* current_row_ptr) {
 
 int main(void)
 {
-    // syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
+    // user_syscall(6, (uint32_t)"LumaOS CLI started\n", 0, 0); // Print initial message
     // return 0;
     char buffer[COMMAND_BUFFER_SIZE];
     int current_row = 0;
@@ -186,7 +251,7 @@ int main(void)
     int cursor_col = 0;
     bool exit_shell = false;
     bool clock_enabled = false;
-    syscall(7, 0, 0, 0); // Activate keyboard
+    user_syscall(7, 0, 0, 0); // Activate keyboard
     speaker_init(); // Initialize speaker
     clear_screen();
     // print_string("Welcome-to-LumaOS-CLI\n", 0, 0);
@@ -227,7 +292,7 @@ int main(void)
                 }
             }
             // Cek input keyboard (non-blocking polling)
-            syscall(4, (uint32_t)&c, 0, 0);
+            user_syscall(4, (uint32_t)&c, 0, 0);
             if (c != 0) {
                 input_ready = 1;
                 break;
@@ -285,7 +350,7 @@ int main(void)
             }
             // Ambil input berikutnya (polling)
             c = 0;
-            syscall(4, (uint32_t)&c, 0, 0);
+            user_syscall(4, (uint32_t)&c, 0, 0);
             for (volatile int d = 0; d < 10000; d++);
         }
         if (current_row >= 24) {
