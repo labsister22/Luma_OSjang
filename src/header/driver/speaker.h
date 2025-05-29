@@ -8,6 +8,7 @@
 #define SPEAKER_PORT 0x61
 #define MAX_VOLUME 100
 #define MIN_VOLUME 0
+#define BEEP_FREQUENCY 400
 
 // Function prototypes
 void speaker_init(void);

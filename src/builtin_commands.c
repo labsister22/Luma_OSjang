@@ -9,7 +9,7 @@ uint32_t current_inode = 2; // Default to root inode for directory operations
 int current_output_row = 0; // Track the current output row for commands like ls
 void print_string(const char* str, int* row_ptr, int* col_ptr) { // Terima pointer
     // Kirim NILAI ke syscall
-    syscall(6, (uint32_t)str, (uint32_t)*row_ptr, (uint32_t)*col_ptr);
+    user_syscall(6, (uint32_t)str, (uint32_t)*row_ptr, (uint32_t)*col_ptr);
 
     // Syscall 6 (SYS_PUTS) di kernel mengupdate kursor dan mengembalikan baris/kolom.
     // Namun, karena SYS_PUTS hanya mencetak string dan mengupdate kursor framebuffer,
@@ -33,7 +33,7 @@ void print_string(const char* str, int* row_ptr, int* col_ptr) { // Terima point
 }
 
 void print_char(char c, int* row_ptr, int* col_ptr) { // Terima pointer
-    syscall(5, (uint32_t)&c, (uint32_t)*col_ptr, (uint32_t)*row_ptr);
+    user_syscall(5, (uint32_t)&c, (uint32_t)*col_ptr, (uint32_t)*row_ptr);
     (*col_ptr)++; // Update kolom
     if ((*col_ptr) >= 80) {
         (*col_ptr) = 0;
@@ -165,7 +165,7 @@ void find_for_rm(uint32_t curr_inode, const char* search_name, int* found, int* 
         inode_ptr[i] = 0;
     }
     
-    syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
+    user_syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
 
     if (dir_inode.i_size == 0 || dir_inode.i_size > 65536 || 
         !(dir_inode.i_mode & 0x4000) || dir_inode.i_block[0] == 0) {
@@ -177,7 +177,7 @@ void find_for_rm(uint32_t curr_inode, const char* search_name, int* found, int* 
         buf[i] = 0;
     }
     
-    syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1);
+    user_syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1);
 
     uint32_t offset = 0;
     int entries_processed = 0;
@@ -244,7 +244,7 @@ void find_for_rm(uint32_t curr_inode, const char* search_name, int* found, int* 
             for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
                 found_ptr[i] = 0;
             }
-            syscall(21, (uint32_t)&found_inode, entry->inode, 0);
+            user_syscall(21, (uint32_t)&found_inode, entry->inode, 0);
             
             *found = 1;
             *target_inode = entry->inode;
@@ -265,14 +265,14 @@ int handle_ls() { // Tidak perlu argumen row_ptr lagi
     // Panggil syscall, kirim ALAMAT dari global current_output_row
     // Agar kernel dapat membaca nilai awalnya dan menulis update-nya
     // current_output_row++;
-    syscall(22, (uint32_t)&current_output_row, current_inode, 0);
+    user_syscall(22, (uint32_t)&current_output_row, current_inode, 0);
 
     // Setelah syscall, `current_output_row` global sudah diupdate oleh kernel.
     return current_output_row; // Kembalikan nilai global yang sudah diupdate
 }
 void handle_clear() {
     // Clear screen using syscall
-    syscall(8, 0, 0, 0);
+    user_syscall(8, 0, 0, 0);
     
     // Reset current output row to start
     current_output_row = 0;
@@ -363,7 +363,7 @@ void handle_cd(const char* path) {
     }
     
     // Optional: gunakan syscall jika ada implementasi cd di kernel
-    syscall(18, current_inode, (uint32_t)path, 0);
+    user_syscall(18, current_inode, (uint32_t)path, 0);
 
     // Success message
     int b = 0;
@@ -399,7 +399,7 @@ void handle_mkdir(const char* name) {
 
 
     int8_t result;
-    syscall(24, (uint32_t)&request, (uint32_t)&result, 0);
+    user_syscall(24, (uint32_t)&request, (uint32_t)&result, 0);
 
     int b = 0;
     if (result == 0) {
@@ -455,7 +455,7 @@ void handle_cat(const char* filename) {
     
     // Panggil syscall untuk membaca file
     int8_t result;
-    syscall(17, (uint32_t)&request, (uint32_t)&result, 0);
+    user_syscall(17, (uint32_t)&request, (uint32_t)&result, 0);
     
     int b = 0;
     
@@ -588,19 +588,19 @@ void handle_help() {
     
     // Audio commands
     print_line("  beep               - Play system beep");
-    print_line("  stop_sound         - Stop audio playback");
+    print_line("  stop               - Stop audio playback");
     
 
 }
-void handle_cp(const char* source, const char* destination) {
+int8_t handle_cp(const char* source, const char* destination) { // Mengembalikan int8_t
     if (!source || strlen(source) == 0) {
         print_line("cp: missing source argument");
-        return;
+        return -1; // Mengembalikan error
     }
     
     if (!destination || strlen(destination) == 0) {
         print_line("cp: missing destination argument");
-        return;
+        return -1; // Mengembalikan error
     }
 
     // Prepare source request
@@ -643,7 +643,7 @@ void handle_cp(const char* source, const char* destination) {
 
     // Call copy file syscall (syscall 28)
     int8_t result;
-    syscall(28, (uint32_t)&src_request, (uint32_t)&dst_request, (uint32_t)&result);
+    user_syscall(28, (uint32_t)&src_request, (uint32_t)&dst_request, (uint32_t)&result);
 
     // Handle result
     int col = 0;
@@ -698,6 +698,7 @@ void handle_cp(const char* source, const char* destination) {
             current_output_row++;
             break;
     }
+    return result; // Mengembalikan hasil syscall
 }
 
 void handle_rm(const char* path) {
@@ -761,10 +762,10 @@ void handle_rm(const char* path) {
     int8_t result;
     if (rm_is_directory) {
         // Use syscall 26 for directory deletion
-        syscall(26, (uint32_t)&request, (uint32_t)&result, 0);
+        user_syscall(26, (uint32_t)&request, (uint32_t)&result, 0);
     } else {
         // Use syscall 25 for file deletion
-        syscall(25, (uint32_t)&request, (uint32_t)&result, 0);
+        user_syscall(25, (uint32_t)&request, (uint32_t)&result, 0);
     }
     
     // Report the result using global pointers
@@ -816,39 +817,28 @@ void handle_mv(const char* source, const char* destination) {
         return;
     }
 
-    // Attempt to copy the source to the destination
-    // Note: This only works for files. Moving directories is much more complex
-    // and would require recursive operations and potentially changes to parent directory entries.
-    print_string("mv: Attempting to move file (copy and then delete)...", &current_output_row, &b);
+    print_string("mv: Attempting to move file...", &current_output_row, &b);
     current_output_row++;
 
-    // Use handle_cp, which in turn calls SYS_COPY_FILE
-    handle_cp(source, destination);
+    // Gunakan handle_cp dan simpan hasilnya
+    int8_t copy_result = handle_cp(source, destination);
 
-    print_string("Attempting to remove source file: ", &current_output_row, &b);
-    print_string(source, &current_output_row, &b);
-    current_output_row++;
-
-    // Use handle_rm, which in turn calls SYS_DELETE_FILE or SYS_DELETE_DIR
-    handle_rm(source);
-}
-
-void itoa(int value, char* str) {
-    char buf[16];
-    int i = 0, j = 0;
-    if (value == 0) {
-        str[0] = '0'; str[1] = '\0'; return;
+    // Cek hasil copy
+    if (copy_result == 0) { // Jika copy berhasil (0 = success)
+        print_string("Copy successful. Attempting to remove source file: ", &current_output_row, &b);
+        print_string(source, &current_output_row, &b);
+        current_output_row++;
+        handle_rm(source); // Hapus file sumber
+    } else if (copy_result == -2) { // Jika gagal karena destination already exists (-2)
+        print_string("mv: destination '", &current_output_row, &b);
+        print_string(destination, &current_output_row, &b);
+        print_string("' already exists. Aborting move.", &current_output_row, &b);
+        current_output_row++;
+    } else { // Jika ada error lain saat copy
+        print_string("mv: failed to copy file. Aborting move.", &current_output_row, &b);
+        current_output_row++;
+        // handle_cp sudah mencetak pesan error spesifiknya
     }
-    if (value < 0) {
-        str[j++] = '-';
-        value = -value;
-    }
-    while (value > 0) {
-        buf[i++] = (value % 10) + '0';
-        value /= 10;
-    }
-    while (i > 0) str[j++] = buf[--i];
-    str[j] = '\0';
 }
 
 void find_recursive(uint32_t curr_inode, const char* search_name, char* path, int* found) {
@@ -876,7 +866,7 @@ void find_recursive(uint32_t curr_inode, const char* search_name, char* path, in
         inode_ptr[i] = 0;
     }
     
-    syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
+    user_syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
 
     if (dir_inode.i_size == 0 || dir_inode.i_size > 65536 || 
         !(dir_inode.i_mode & 0x4000) || dir_inode.i_block[0] == 0) {
@@ -889,7 +879,7 @@ void find_recursive(uint32_t curr_inode, const char* search_name, char* path, in
         buf[i] = 0;
     }
     
-    syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1);
+    user_syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1);
 
     uint32_t offset = 0;
     int entries_processed = 0;
@@ -980,7 +970,7 @@ void find_recursive(uint32_t curr_inode, const char* search_name, char* path, in
             for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
                 found_ptr[i] = 0;
             }
-            syscall(21, (uint32_t)&found_inode, entry->inode, 0);
+            user_syscall(21, (uint32_t)&found_inode, entry->inode, 0);
             
             // ✅ FIXED: Use global pointer variables
             int b = 0;
@@ -1007,7 +997,7 @@ void find_recursive(uint32_t curr_inode, const char* search_name, char* path, in
                 child_ptr[i] = 0;
             }
             
-            syscall(21, (uint32_t)&child_inode, entry->inode, 0);
+            user_syscall(21, (uint32_t)&child_inode, entry->inode, 0);
             
             if ((child_inode.i_mode & 0x4000) == 0x4000 && 
                 child_inode.i_size > 0 && child_inode.i_size < 65536 &&
@@ -1090,6 +1080,368 @@ void handle_find(const char* filename) {
     if (!found) {
         b = 0;
         print_string("File or directory not found", &current_output_row, &b);
+        current_output_row++;
+    }
+}
+int string_to_int(const char* str) {
+    if (!str || *str == '\0') return -1;
+    
+    int result = 0;
+    int sign = 1;
+    
+    // Handle negative numbers
+    if (*str == '-') {
+        sign = -1;
+        str++;
+    }
+    
+    while (*str >= '0' && *str <= '9') {
+        result = result * 10 + (*str - '0');
+        str++;
+    }
+    
+    return result * sign;
+}
+
+// Utility function untuk convert integer ke string
+void int_to_string(int value, char* str) {
+    if (value == 0) {
+        str[0] = '0';
+        str[1] = '\0';
+        return;
+    }
+    
+    int is_negative = 0;
+    if (value < 0) {
+        is_negative = 1;
+        value = -value;
+    }
+    
+    char temp[16];
+    int i = 0;
+    
+    while (value > 0) {
+        temp[i++] = '0' + (value % 10);
+        value /= 10;
+    }
+    
+    int j = 0;
+    if (is_negative) {
+        str[j++] = '-';
+    }
+    
+    while (i > 0) {
+        str[j++] = temp[--i];
+    }
+    str[j] = '\0';
+}
+void handle_exec(const char* command) {
+    if (!command || strlen(command) == 0) {
+        current_output_row++;
+        print_line("exec: missing argument");
+        current_output_row++;
+        return;
+    }
+
+    current_output_row++;
+    
+    // PERBAIKAN: Handle built-in commands sebagai background processes
+    if (strcmp(command, "clock") == 0) {
+        // Create a fake "executable" request for clock
+        struct EXT2DriverRequest request;
+        memset(&request, 0, sizeof(request));
+        
+        // Set nama process
+        strcpy(request.name, "clock");
+        request.name_len = 5;
+        request.parent_inode = current_inode;
+        
+        // Set dummy buffer untuk process (clock tidak perlu executable file)
+        request.buf = (uint8_t*)0x500000; // Different address from standard
+        request.buffer_size = PAGE_FRAME_SIZE;
+        request.is_directory = 0;
+        
+        // Call process creation syscall
+        int32_t result;
+        user_syscall(30, (uint32_t)&request, (uint32_t)&result, 0);
+        
+        if (result == PROCESS_CREATE_SUCCESS) {
+            print_line("Background process 'clock' started");
+        } else {
+            print_line("exec: failed to start clock process");
+        }
+        
+    } else if (strcmp(command, "beep") == 0) {
+        // Create a fake "executable" request for beep
+        struct EXT2DriverRequest request;
+        memset(&request, 0, sizeof(request));
+        
+        // Set nama process
+        strcpy(request.name, "beep");
+        request.name_len = 4;
+        request.parent_inode = current_inode;
+        
+        // Set dummy buffer untuk process
+        request.buf = (uint8_t*)0x600000; // Different address
+        request.buffer_size = PAGE_FRAME_SIZE;
+        request.is_directory = 0;
+        
+        // Call process creation syscall
+        int32_t result;
+        user_syscall(30, (uint32_t)&request, (uint32_t)&result, 0);
+        
+        if (result == PROCESS_CREATE_SUCCESS) {
+            print_line("Background process 'beep' started");
+            // Actually play beep sound
+            speaker_play(BEEP_FREQUENCY);
+        } else {
+            print_line("exec: failed to start beep process");
+        }
+        
+    } else if (strcmp(command, "shell") == 0) {
+        // Try to execute actual shell executable from filesystem
+        struct EXT2DriverRequest request;
+        memset(&request, 0, sizeof(request));
+        
+        request.parent_inode = current_inode;
+        request.name_len = strlen(command);
+        
+        // Copy nama file dengan bounds checking
+        size_t copy_len = strlen(command);
+        if (copy_len >= sizeof(request.name)) {
+            copy_len = sizeof(request.name) - 1;
+        }
+        for (size_t i = 0; i < copy_len; i++) {
+            request.name[i] = command[i];
+        }
+        request.name[copy_len] = '\0';
+        
+        // Set buffer untuk executable (user space address)
+        request.buf = (uint8_t*)0x400000; // Standard user space address
+        request.buffer_size = PAGE_FRAME_SIZE * 4; // Max 4 pages
+        request.is_directory = 0;
+        
+        // Call exec syscall
+        int32_t result;
+        user_syscall(30, (uint32_t)&request, (uint32_t)&result, 0);
+        
+        switch (result) {
+            case PROCESS_CREATE_SUCCESS:
+                print_line("Process 'shell' started successfully");
+                break;
+            case PROCESS_CREATE_FAIL_FS_READ_FAILURE:
+                print_line("exec: cannot read file 'shell'");
+                break;
+            default:
+                print_line("exec: failed to execute 'shell'");
+                break;
+        }
+        
+    } else {
+        // Try to execute as regular file from filesystem
+        struct EXT2DriverRequest request;
+        memset(&request, 0, sizeof(request));
+        
+        request.parent_inode = current_inode;
+        request.name_len = strlen(command);
+        
+        // Copy nama file dengan bounds checking
+        size_t copy_len = strlen(command);
+        if (copy_len >= sizeof(request.name)) {
+            copy_len = sizeof(request.name) - 1;
+        }
+        for (size_t i = 0; i < copy_len; i++) {
+            request.name[i] = command[i];
+        }
+        request.name[copy_len] = '\0';
+        
+        // Set buffer untuk executable (user space address)
+        request.buf = (uint8_t*)0x400000; // Standard user space address
+        request.buffer_size = PAGE_FRAME_SIZE * 4; // Max 4 pages
+        request.is_directory = 0;
+        
+        // Call exec syscall
+        int32_t result;
+        user_syscall(30, (uint32_t)&request, (uint32_t)&result, 0);
+        
+        switch (result) {
+            case PROCESS_CREATE_SUCCESS:    
+                {int b = 0;
+                print_string("Process '", &current_output_row, &b);
+                print_string(command, &current_output_row, &b);
+                print_string("' started successfully", &current_output_row, &b);
+                break;}
+            case PROCESS_CREATE_FAIL_FS_READ_FAILURE:
+            {   int b = 0;
+                print_string("exec: cannot read file '", &current_output_row, &b);
+                print_string(command, &current_output_row, &b);
+                print_string("'", &current_output_row, &b);
+                break;
+            }
+            case PROCESS_CREATE_FAIL_MAX_PROCESS_EXCEEDED:
+            {   int b = 0;
+                print_string("exec: maximum number of processes exceeded", &current_output_row, &b);
+                break;
+            }
+            case PROCESS_CREATE_FAIL_INVALID_ENTRYPOINT:
+            {   int b = 0;
+                print_string("exec: invalid entry point for '", &current_output_row, &b);
+                print_string(command, &current_output_row, &b);
+                print_string("'", &current_output_row, &b);
+                break;}
+            case PROCESS_CREATE_FAIL_NOT_ENOUGH_MEMORY:
+                {int b = 0;
+                print_string("exec: not enough memory to run '", &current_output_row, &b);
+                print_string(command, &current_output_row, &b);
+                print_string("'", &current_output_row, &b);
+                break;}
+            default:
+                {int b = 0;
+                print_string("exec: unknown command '", &current_output_row, &b);
+                print_string(command,&current_output_row, &b);
+                print_string("'", &current_output_row, &b);
+                break;}
+        }
+    }
+    
+    current_output_row++;
+}
+
+void handle_ps() {
+    // Get process information from kernel
+    struct ProcessControlBlock pcb_list[PROCESS_COUNT_MAX];
+    int process_count = 0;
+    
+    // Fixed: use syscall instead of user_syscall
+    user_syscall(31, (uint32_t)pcb_list, (uint32_t)&process_count, 0);
+    
+    // Fixed header using global pointers
+    int b = 0;
+    print_string("Process Information:", &current_output_row, &b);
+    current_output_row++;
+    
+    b = 0;
+    print_string("==================", &current_output_row, &b);
+    current_output_row++;
+    
+    if (process_count == 0) {
+        b = 0;
+        print_string("No active processes", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+    
+    // Column headers using global pointers
+    b = 0;
+    print_string("PID  NAME     STATE", &current_output_row, &b);
+    current_output_row++;
+    
+    b = 0;
+    print_string("---  -------- -----", &current_output_row, &b);
+    current_output_row++;
+    
+    // Process list using global pointers
+    for (int i = 0; i < process_count && i < PROCESS_COUNT_MAX; i++) {
+        if (pcb_list[i].metadata.active) {
+            char pid_str[16];
+            int_to_string(pcb_list[i].metadata.pid, pid_str);
+            
+            // Use global pointers for all columns in one line
+            b = 0;
+            print_string(pid_str, &current_output_row, &b);
+            print_string("  ", &current_output_row, &b);  // Spacing
+            
+            // Process name
+            char name_buffer[9];
+            int name_len = 0;
+            while (name_len < 8 && pcb_list[i].metadata.name[name_len] != '\0') {
+                name_buffer[name_len] = pcb_list[i].metadata.name[name_len];
+                name_len++;
+            }
+            name_buffer[name_len] = '\0';
+            print_string(name_buffer, &current_output_row, &b);
+            
+            // Add padding for alignment
+            for (int pad = name_len; pad < 8; pad++) {
+                print_string(" ", &current_output_row, &b);
+            }
+            print_string(" ", &current_output_row, &b);  // Extra space
+            
+            // Process state
+            const char* state_str;
+            switch (pcb_list[i].metadata.cur_state) {
+                case READY:
+                    state_str = "READY";
+                    break;
+                case RUNNING:
+                    state_str = "RUNNING";
+                    break;
+                case BLOCKED:
+                    state_str = "BLOCKED";
+                    break;
+                default:
+                    state_str = "UNKNOWN";
+                    break;
+            }
+            print_string(state_str, &current_output_row, &b);
+            
+            current_output_row++;
+            
+            // Check screen limit
+            if (current_output_row >= 22) {
+                b = 0;
+                print_string("-- More --", &current_output_row, &b);
+                current_output_row++;
+                break;
+            }
+        }
+    }
+    
+    // Summary using global pointers
+    current_output_row++;
+    char count_str[16];
+    int_to_string(process_count, count_str);
+    
+    b = 0;
+    print_string("Total active processes: ", &current_output_row, &b);
+    print_string(count_str, &current_output_row, &b);
+    current_output_row++;
+}
+
+void handle_kill(const char* pid_str) {
+    if (!pid_str || strlen(pid_str) == 0) {
+        int b = 0;
+        print_string("kill: missing argument (usage: kill <pid>)", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+    
+    // Convert string to PID
+    int pid = string_to_int(pid_str);
+    if (pid <= 0) {
+        int b = 0;
+        print_string("kill: invalid PID '", &current_output_row, &b);
+        print_string(pid_str, &current_output_row, &b);
+        print_string("'", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+    
+    // Call kill syscall (fixed: use syscall instead of user_syscall)
+    bool result = false;
+    user_syscall(32, (uint32_t)pid, (uint32_t)&result, 0);
+    
+    // Fixed result message using global pointers
+    int b = 0;
+    if (result) {
+        print_string("Process ", &current_output_row, &b);
+        print_string(pid_str, &current_output_row, &b);
+        print_string(" terminated successfully", &current_output_row, &b);
+        current_output_row++;
+    } else {
+        print_string("kill: process ", &current_output_row, &b);
+        print_string(pid_str, &current_output_row, &b);
+        print_string(" not found or cannot be terminated", &current_output_row, &b);
         current_output_row++;
     }
 }

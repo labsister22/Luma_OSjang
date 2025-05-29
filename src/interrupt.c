@@ -6,6 +6,7 @@
 #include "header/filesystem/ext2.h"
 #include "header/text/framebuffer.h"
 #include "header/driver/cmos.h"
+#include "header/process/process.h"
 
 struct TSSEntry _interrupt_tss_entry = {
     .ss0 = GDT_KERNEL_DATA_SEGMENT_SELECTOR,
@@ -884,7 +885,83 @@ int8_t delete_directory(struct EXT2DriverRequest *request) {
     
     return 0; // Success
 }
-
+int8_t move_file(struct EXT2DriverRequest *src_request, struct EXT2DriverRequest *dst_request) {
+    // Validasi input
+    if (!src_request || !dst_request) {
+        return -1; // Invalid parameters
+    }
+    
+    // Validasi nama file
+    if (src_request->name_len == 0 || dst_request->name_len == 0) {
+        return -1; // Invalid parameters
+    }
+    
+    // 1. Cari source file/directory di parent directory
+    struct EXT2Inode parent_inode;
+    read_inode(src_request->parent_inode, &parent_inode);
+    
+    // Verifikasi parent adalah directory
+    if (!is_directory(&parent_inode)) {
+        return -1; // Parent is not a directory
+    }
+    
+    // Buat salinan nama source yang aman
+    char src_name[256];
+    size_t src_name_len = src_request->name_len;
+    if (src_name_len >= sizeof(src_name)) {
+        src_name_len = sizeof(src_name) - 1;
+    }
+    memcpy(src_name, src_request->name, src_name_len);
+    src_name[src_name_len] = '\0';
+    
+    // Cari inode source
+    uint32_t src_inode_num = 0;
+    if (!find_inode_in_dir(&parent_inode, src_name, &src_inode_num)) {
+        return -2; // Source file not found
+    }
+    
+    // 2. Cek apakah destination sudah ada
+    char dst_name[256];
+    size_t dst_name_len = dst_request->name_len;
+    if (dst_name_len >= sizeof(dst_name)) {
+        dst_name_len = sizeof(dst_name) - 1;
+    }
+    memcpy(dst_name, dst_request->name, dst_name_len);
+    dst_name[dst_name_len] = '\0';
+    
+    uint32_t dst_inode_num = 0;
+    if (find_inode_in_dir(&parent_inode, dst_name, &dst_inode_num)) {
+        return -3; // Destination already exists
+    }
+    
+    // 3. Baca source inode untuk validasi
+    struct EXT2Inode src_inode;
+    read_inode(src_inode_num, &src_inode);
+    
+    // Jika source adalah directory, cek apakah kosong (untuk keamanan)
+    if (is_directory(&src_inode)) {
+        if (!is_empty_directory(&src_inode)) {
+            // Untuk implementasi sederhana, hanya izinkan move directory kosong
+            // Atau implementasi yang lebih kompleks bisa move seluruh isi directory
+            return -5; // Directory not empty
+        }
+    }
+    
+    // 4. RENAME/MOVE operation
+    // Karena kita dalam direktori yang sama, ini adalah operasi rename
+    // Hapus entry lama dan buat entry baru dengan nama baru
+    
+    // Hapus entry lama dari directory
+    remove_inode_from_dir(&parent_inode, src_name);
+    
+    // Tambah entry baru dengan nama baru
+    add_inode_to_dir(&parent_inode, src_inode_num, dst_name);
+    
+    // Update file type dalam directory entry jika diperlukan
+    // (add_inode_to_dir sudah mengurus ini)
+    
+    return 0; // Success
+}
 void syscall(struct InterruptFrame frame)
 {
   switch (frame.cpu.general.eax)
@@ -1196,6 +1273,43 @@ break;
     
     *result = copy_file(src_request, dst_request);
     break;
+  }
+  case 29: // SYS_MOVE_FILE
+  {
+      struct EXT2DriverRequest *src_request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+      struct EXT2DriverRequest *dst_request = (struct EXT2DriverRequest *)frame.cpu.general.ecx;
+      int8_t *result = (int8_t *)frame.cpu.general.edx;
+      
+      *result = move_file(src_request, dst_request);
+      break;
+  }
+  // Tambahkan case baru di syscall handler:
+
+  case 30: // SYS_EXEC - Create new user process
+  {
+      struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+      int32_t *result = (int32_t *)frame.cpu.general.ecx;
+      
+      *result = process_create_user_process(*request);
+      break;
+  }
+
+  case 31: // SYS_GET_PROCESS_INFO - Get process information
+  {
+      struct ProcessControlBlock *pcb_array = (struct ProcessControlBlock *)frame.cpu.general.ebx;
+      int *count = (int *)frame.cpu.general.ecx;
+      
+      getActivePCB(pcb_array, count);
+      break;
+  }
+
+  case 32: // SYS_KILL_PROCESS - Terminate process by PID
+  {
+      uint32_t pid = frame.cpu.general.ebx;
+      bool *result = (bool *)frame.cpu.general.ecx;
+      
+      *result = process_destroy(pid);
+      break;
   }
 
   default:

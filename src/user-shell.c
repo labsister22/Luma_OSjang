@@ -4,12 +4,10 @@
 #include <stdbool.h>
 #include "header/stdlib/string.h" // Now strictly adhering to provided functions only
 #include "header/shell/builtin_commands.h"
-#include "header/driver/speaker.h"
 
 #define COMMAND_BUFFER_SIZE 128
 #define MAX_PATH_LENGTH 256
-
-#define BEEP_FREQUENCY 440  // Frekuensi untuk nada A4
+// Frekuensi untuk nada A4
 // #define BEEP_DURATION_LOOPS 500000 
 
 // Global current working directory
@@ -36,7 +34,7 @@ int simple_atoi(const char* str) {
     return res;
 }
 
-void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
+void user_syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
 {
     __asm__ volatile("mov %0, %%ebx" : : "r"(ebx));
     __asm__ volatile("mov %0, %%ecx" : : "r"(ecx));
@@ -45,24 +43,24 @@ void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx)
     __asm__ volatile("int $0x30");
 }
 void clear_screen() {
-    syscall(8, 0, 0, 0);
+    user_syscall(8, 0, 0, 0);
 }
 
 void set_cursor(int col, int row) {
-    syscall(9, col, row, 0);
+    user_syscall(9, col, row, 0);
 }
 
 char get_char() {
     char c = 0;
     do {
-        syscall(4, (uint32_t)&c, 0, 0);
+        user_syscall(4, (uint32_t)&c, 0, 0);
         for (volatile int i = 0; i < 100; i++);
     } while (c == 0);
     return c;
 }
 
 void get_time(struct Time* t) {
-    syscall(10, (uint32_t)t, 0, 0);
+    user_syscall(10, (uint32_t)t, 0, 0);
 }
 
 void get_time_string(char* buffer) {
@@ -78,7 +76,32 @@ void get_time_string(char* buffer) {
     buffer[7] = '0' + (t.second % 10);
     buffer[8] = '\0';
 }
-
+void parse_two_arguments(const char* input, char* arg1, char* arg2) {
+    int i = 0, j = 0;
+    
+    // Clear buffers
+    arg1[0] = '\0';
+    arg2[0] = '\0';
+    
+    // Skip leading spaces
+    while (input[i] == ' ' && input[i] != '\0') i++;
+    
+    // Parse first argument
+    while (input[i] != ' ' && input[i] != '\0' && j < 63) {
+        arg1[j++] = input[i++];
+    }
+    arg1[j] = '\0';
+    
+    // Skip spaces between arguments
+    while (input[i] == ' ' && input[i] != '\0') i++;
+    
+    // Parse second argument
+    j = 0;
+    while (input[i] != '\0' && j < 63) {
+        arg2[j++] = input[i++];
+    }
+    arg2[j] = '\0';
+}
 // Function to process commands
 void process_command(char* command_buffer) {
     char* command_name = command_buffer;
@@ -183,7 +206,7 @@ void process_command(char* command_buffer) {
         // Tambahkan delay sederhana
         // for (volatile int d = 0; d < BEEP_DURATION_LOOPS; d++);
         // speaker_stop();
-    } else if (strcmp(command_name, "stop_sound") == 0) {
+    } else if (strcmp(command_name, "stop") == 0) {
         speaker_stop();
         int b = 0;
         print_string("Sound stopped.", &current_output_row, &b);
@@ -196,8 +219,24 @@ void process_command(char* command_buffer) {
         int b = 0;
         print_string("Clock running...", &current_output_row, &b);
         // It's technically unreachable now due to the main loop's check.
-    }
-    else {
+    } else if (strcmp(command_name, "exec") == 0) {
+        // TAMBAHAN: Handle exec command
+        if (arg1) {
+            handle_exec(arg1);
+        } else {
+            print_line("exec: missing argument");
+        }
+    } else if (strcmp(command_name, "ps") == 0) {
+        // TAMBAHAN: Handle ps command (no arguments needed)
+        handle_ps();
+    } else if (strcmp(command_name, "kill") == 0) {
+        // TAMBAHAN: Handle kill command
+        if (arg1) {
+            handle_kill(arg1);
+        } else {
+            print_line("kill: missing argument (usage: kill <pid>)");
+        }
+    } else {
         int b = 0;
         print_string("Unknown command: ", &current_output_row, &b);
         int a = (int)strlen("Unknown command: ");
@@ -218,7 +257,7 @@ int main(void)
     int cursor_col_for_input = 0; // Variabel untuk melacak kolom kursor input
     bool exit_shell = false;
     bool clock_enabled = false;
-    syscall(7, 0, 0, 0); // Activate keyboard
+    user_syscall(7, 0, 0, 0); // Activate keyboard
     speaker_init(); // Initialize speaker
     clear_screen();
     // print_string("Welcome-to-LumaOS-CLI\n", 0, 0);
@@ -266,7 +305,7 @@ int main(void)
                 }
             }
             // Cek input keyboard (non-blocking polling)
-            syscall(4, (uint32_t)&c, 0, 0);
+            user_syscall(4, (uint32_t)&c, 0, 0);
             if (c != 0) {
                 input_ready = 1;
                 break;
@@ -311,7 +350,7 @@ int main(void)
                     cursor_col_for_input--;
                     buffer[buffer_pos] = '\0';
                     set_cursor(cursor_col_for_input, current_output_row);
-                    syscall(5, (uint32_t)' ', cursor_col_for_input, current_output_row);
+                    user_syscall(5, (uint32_t)' ', cursor_col_for_input, current_output_row);
                     set_cursor(cursor_col_for_input, current_output_row);
                 }
             } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) { // Karakter biasa
@@ -322,7 +361,7 @@ int main(void)
                 }
             // Ambil input berikutnya (polling)
             c = 0;
-            syscall(4, (uint32_t)&c, 0, 0);
+            user_syscall(4, (uint32_t)&c, 0, 0);
             for (volatile int d = 0; d < 10000; d++);
         }
         if (current_output_row >= 24) {
