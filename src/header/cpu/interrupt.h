@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "header/filesystem/ext2.h"
 
 /* -- PIC constants -- */
 
@@ -190,6 +191,7 @@ struct TSSEntry
 // Set kernel stack in TSS
 void set_tss_kernel_current_stack(void);
 void syscall(struct InterruptFrame frame);
+int8_t create_directory(struct EXT2DriverRequest *request);
 
 void activate_timer_interrupt(void);
 

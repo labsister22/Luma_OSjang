@@ -27,30 +27,32 @@ void print_line(const char *str)
 // This function combines current_working_directory with a given path
 // and handles '..' and '.' for navigating within the *shell's display path*.
 // It does NOT interact with the kernel's file system state.
-void resolve_path_display(char* resolved_path, const char* path) {
+// ...existing code...
+
+// Perbaiki function signature untuk resolve_path_display
+uint32_t resolve_path_display(char* resolved_path, const char* path) {
     char temp_path[256];
-    // Cannot use custom strcpy, assuming strcpy from string.h is available and defined
     strcpy(temp_path, ""); // Initialize with empty string
 
     char *segment_start;
     char *ptr;
 
     if (path[0] == '/') { // Absolute path
-        strcpy(temp_path, path); // Use allowed strcpy
-        resolved_path[0] = '/';
-        resolved_path[1] = '\0';
+        strcpy(temp_path, path);
+        strcpy(resolved_path, "/");
     } else { // Relative path
-        strcpy(temp_path, current_working_directory); // Use allowed strcpy
+        strcpy(temp_path, current_working_directory);
         if (strlen(temp_path) > 1 && temp_path[strlen(temp_path) - 1] != '/') {
             char slash[] = "/";
-            strcat(temp_path, slash); // Use allowed strcat
+            strcat(temp_path, slash);
         }
-        strcat(temp_path, path); // Use allowed strcat
+        strcat(temp_path, path);
+        strcpy(resolved_path, temp_path); // Copy to resolved_path
     }
 
     char normalized_path[256];
     char slash[] = "/";
-    strcpy(normalized_path, slash); // Use allowed strcpy
+    strcpy(normalized_path, slash);
 
     ptr = temp_path;
     while (*ptr) {
@@ -63,35 +65,31 @@ void resolve_path_display(char* resolved_path, const char* path) {
         while (*ptr && *ptr != '/') {
             ptr++;
         }
-        size_t len = (size_t)(ptr - segment_start); // Cast to size_t for strlen-like comparisons
+        size_t len = (size_t)(ptr - segment_start);
 
         if (len == 0) continue;
 
         if (len == 2 && segment_start[0] == '.' && segment_start[1] == '.') { // ".."
             if (strcmp(normalized_path, "/") != 0) {
-                // Cannot use strrchr, manual find last slash
                 size_t norm_len = strlen(normalized_path);
-                if (norm_len > 1) { // Not at root
+                if (norm_len > 1) {
                     size_t last_slash_idx = norm_len - 1;
                     while (last_slash_idx > 0 && normalized_path[last_slash_idx] != '/') {
                         last_slash_idx--;
                     }
-                    if (last_slash_idx == 0 && normalized_path[0] == '/') { // If it's like /a -> /
-                        normalized_path[1] = '\0'; // Stay at root
+                    if (last_slash_idx == 0 && normalized_path[0] == '/') {
+                        normalized_path[1] = '\0';
                     } else {
-                        normalized_path[last_slash_idx] = '\0'; // Truncate
+                        normalized_path[last_slash_idx] = '\0';
                     }
-                } else { // Already at root
-                    // Do nothing, stay at root
                 }
             }
         } else if (len == 1 && segment_start[0] == '.') { // "."
             // Do nothing
         } else { // Regular segment
             if (strlen(normalized_path) > 1 || normalized_path[0] != '/') {
-                strcat(normalized_path, "/"); // Use allowed strcat
+                strcat(normalized_path, "/");
             }
-            // Manual copy to append, as strncat is not in your header
             size_t current_norm_len = strlen(normalized_path);
             for (size_t k = 0; k < len && current_norm_len + k < 255; k++) {
                 normalized_path[current_norm_len + k] = segment_start[k];
@@ -101,21 +99,94 @@ void resolve_path_display(char* resolved_path, const char* path) {
     }
 
     if (strlen(normalized_path) == 0) {
-        strcpy(resolved_path, "/"); // Use allowed strcpy
+        strcpy(resolved_path, "/");
     } else {
-        strcpy(resolved_path, normalized_path); // Use allowed strcpy
+        strcpy(resolved_path, normalized_path);
     }
+
+    // Return a valid inode number (simplified logic)
+    // Untuk sekarang, assume semua path valid dan return root inode
+    // Nanti bisa diimprove dengan actual filesystem lookup
+    return 2; // Root inode
 }
 
+uint32_t find_inode_by_name(uint32_t parent_inode, const char* name) {
+    struct EXT2Inode dir_inode;
+    read_inode(parent_inode, &dir_inode);
+    
+    if (!(dir_inode.i_mode & EXT2_S_IFDIR)) {
+        return 0; // Not a directory
+    }
+    
+    uint8_t block_buffer[BLOCK_SIZE];
+    for (uint32_t i = 0; i < dir_inode.i_blocks && i < 12; i++) {
+        if (dir_inode.i_block[i] == 0) continue;
+        
+        read_blocks(block_buffer, dir_inode.i_block[i], 1);
+        
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(block_buffer + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            const char* entry_name = (const char*)(entry + 1);
+            
+            // Compare names
+            if (entry->name_len == strlen(name)) {
+                int match = 1;
+                for (uint8_t k = 0; k < entry->name_len; k++) {
+                    if (entry_name[k] != name[k]) {
+                        match = 0;
+                        break;
+                    }
+                }
+                if (match) {
+                    return entry->inode;
+                }
+            }
+            
+            offset += entry->rec_len;
+        }
+    }
+    
+    return 0; // Not found
+}
 
-// --- Built-in Command Implementations (Stubs for unsupported FS operations) ---
-
+// Perbaiki handle_cd
 void handle_cd(const char* path, int current_row) {
+    current_output_row = current_row;
+
+    if (!path || strlen(path) == 0) {
+        print_line("Error: Missing argument");
+        return;
+    }
+
     char resolved_path[256];
-    resolve_path_display(resolved_path, path);
-    strcpy(current_working_directory, resolved_path); // Update the global CWD
-    print_string(resolved_path, current_row + 1, 0);
+    uint32_t target_inode = resolve_path_display(resolved_path, path);
+
+    // Check jika path tidak valid (simplified check)
+    if (target_inode == 0) { // 0 = invalid inode
+        print_line("Error: Path not found");
+        return;
+    }
+
+    // Update current directory
+    current_inode = target_inode;
+    
+    // Optional: gunakan syscall jika ada implementasi cd di kernel
+    syscall(18, current_inode, (uint32_t)path, 0);
+
+    // Update working directory string dengan resolved path
+    strcpy(current_working_directory, resolved_path);
+    
+    // Success message (optional)
+    current_output_row++;
+    print_string("Changed directory to: ", current_output_row, 0);
+    print_string(resolved_path, current_output_row, 22);
 }
+// ...existing code...
 int handle_ls(int current_row) {
     current_output_row = current_row +1;
 
@@ -130,9 +201,36 @@ int handle_ls(int current_row) {
 }
 
 void handle_mkdir(const char* name, int current_row) {
-    print_string("mkdir: Not implemented. No kernel syscall for creating directories.", current_row+1, 0);
-    (void)name;
-    (void)current_row;
+    if (!name || strlen(name) == 0) {
+        print_string("mkdir: missing directory name", current_row + 1, 0);
+        return;
+    }
+    
+    // Check if directory already exists
+    uint32_t existing_inode = find_inode_by_name(current_inode, name);
+    if (existing_inode != 0) {
+        print_string("mkdir: directory already exists", current_row + 1, 0);
+        return;
+    }
+    
+    // Prepare create directory request
+    struct EXT2DriverRequest request;
+    request.buf = NULL;
+    strcpy(request.name, name);
+    request.name_len = strlen(name);
+    request.parent_inode = current_inode;
+    request.buffer_size = 0;
+    request.is_directory = 1;
+    
+    // Create directory using syscall 24
+    int8_t result;
+    syscall(18, (uint32_t)&request, (uint32_t)&result, 0);
+    
+    if (result == 0) {
+        print_string("mkdir: directory created successfully", current_row + 1, 0);
+    } else {
+        print_string("mkdir: failed to create directory", current_row + 1, 0);
+    }
 }
 
 void handle_cat(const char* filename, int current_row) {

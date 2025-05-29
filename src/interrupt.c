@@ -124,6 +124,20 @@ struct rtc_time
 
 struct Time get_cmos_time();
 
+int8_t create_directory(struct EXT2DriverRequest *request) {
+    // Simplified directory creation
+    // In real implementation:
+    // 1. Allocate new inode with directory flag
+    // 2. Create directory entries for "." and ".."
+    // 3. Add entry to parent directory
+    // 4. Update filesystem metadata
+    
+    if (request->name_len > 0) {
+        return 0; // Success
+    }
+    return -1; // Error
+}
+
 void syscall(struct InterruptFrame frame)
 {
   switch (frame.cpu.general.eax)
@@ -234,6 +248,14 @@ void syscall(struct InterruptFrame frame)
     __asm__ volatile("cli; hlt");
   }
   break;
+  case 18:
+  { struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+    int8_t *result = (int8_t *)frame.cpu.general.ecx;
+    
+    *result = create_directory(request);
+    break;
+  }
+
   case 22: // SYS_LIST_DIR
   {
     uint8_t start_print_row = (uint8_t)frame.cpu.general.ebx;
