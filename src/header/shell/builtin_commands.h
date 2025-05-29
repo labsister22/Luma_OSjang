@@ -9,18 +9,18 @@
 extern char current_working_directory[256]; // Assuming MAX_PATH_LENGTH from user-shell.c
 extern void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx);
 // Function prototypes for built-in commands
-void handle_cd(const char* path, int current_row);
-int handle_ls(int current_row);
-void handle_mkdir(const char* name, int current_row);
-void handle_cat(const char* filename, int current_row);
-void handle_cp(const char* source, const char* destination, int current_row);
-void handle_rm(const char *path, int current_row);
-void handle_mv(const char* source, const char* destination, int current_row);
-void handle_find(const char* name, int current_row);
+void handle_cd(const char* path);
+int handle_ls();
+void handle_mkdir(const char* name);
+void handle_cat(const char* filename);
+void handle_cp(const char* source, const char* destination);
+void handle_rm(const char *path);
+void handle_mv(const char* source, const char* destination);
+void handle_find(const char* name);
 
 // Utility functions (from user-shell.c / shared)
-void print_string(const char* str, int row, int col);
-void print_char(char c, int row, int col);
+void print_string(const char* str, int* row, int* col);
+void print_char(char c, int* row, int* col);
 void print_line(const char *str);
 
 #endif // BUILTIN_COMMANDS_H

@@ -114,65 +114,77 @@ void process_command(char* command_buffer, int* current_row_ptr) {
 
     if (strcmp(command_name, "cd") == 0) {
         if (arg1) {
-            handle_cd(arg1, *current_row_ptr);
+            handle_cd(arg1);
         } else {
-            print_string("cd: missing argument", *current_row_ptr+1, 0);
+            int b = 0;
+            print_string("cd: missing argument", current_row_ptr, &b);
         }
     } else if (strcmp(command_name, "ls") == 0) {
-        handle_ls(*current_row_ptr);
+        handle_ls();
     } else if (strcmp(command_name, "mkdir") == 0) {
         if (arg1) {
-            handle_mkdir(arg1, *current_row_ptr);
+            handle_mkdir(arg1);
         } else {
-            print_string("mkdir: missing argument", *current_row_ptr+1, 0);
+            int b = 0;
+            print_string("mkdir: missing argument", current_row_ptr, &b);
         }
     } else if (strcmp(command_name, "cat") == 0) {
         if (arg1) {
-            handle_cat(arg1, *current_row_ptr);
+            handle_cat(arg1);
         } else {
-            print_string("cat: missing argument", *current_row_ptr+1, 0);
+            int b = 0;
+            print_string("cat: missing argument", current_row_ptr, &b);
         }
     } else if (strcmp(command_name, "cp") == 0) {
         // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("cp: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
+        print_string("cp: requires two arguments, not supported with current string functions.", current_row_ptr, 0);
     } else if (strcmp(command_name, "rm") == 0) {
         if (arg1) {
-            handle_rm(arg1, *current_row_ptr);
+            handle_rm(arg1);
         } else {
-            print_string("rm: missing argument", *current_row_ptr+1, 0);
+            int b = 0;
+            print_string("rm: missing argument", current_row_ptr, &b);
         }
     } else if (strcmp(command_name, "mv") == 0) {
+        int b = 0;
         // This command needs two arguments, which cannot be parsed with current string functions
-        print_string("mv: requires two arguments, not supported with current string functions.", *current_row_ptr+1, 0);
+        print_string("mv: requires two arguments, not supported with current string functions.", current_row_ptr, &b);
     } else if (strcmp(command_name, "find") == 0) {
         if (arg1) {
-            handle_find(arg1, *current_row_ptr);
+            handle_find(arg1);
         } else {
-            print_string("find: missing argument", *current_row_ptr+1, 0);
+            int b = 0;
+            print_string("find: missing argument", current_row_ptr, &b);
         }
     } else if (strcmp(command_name, "beep") == 0) { // Tambahkan perintah beep
-        print_string("Playing beep...", *current_row_ptr + 1, 0);
+        int b = 0;
+        print_string("Playing beep...", current_row_ptr, &b);
         speaker_play(BEEP_FREQUENCY);
         // Tambahkan delay sederhana
         // for (volatile int d = 0; d < BEEP_DURATION_LOOPS; d++);
         // speaker_stop();
     } else if (strcmp(command_name, "stop_sound") == 0) {
         speaker_stop();
-        print_string("Sound stopped.", *current_row_ptr + 1, 0);
+        int b = 0;
+        print_string("Sound stopped.", current_row_ptr, &b);
     } else if (strcmp(command_name, "exit") == 0) { // Exit needs to be handled here directly now
-        print_string("Goodbye!", *current_row_ptr, 0);
+        int b = 0;
+        print_string("Goodbye!", current_row_ptr, &b);
         // This will only be executed if 'exit' is the only thing typed.
         // It's technically unreachable now due to the main loop's check.
     } else if (strcmp(command_name, "clock") == 0) { // Clock also handled directly
-        print_string("Clock running...", *current_row_ptr, 0);
+        int b = 0;
+        print_string("Clock running...", current_row_ptr, &b);
         // It's technically unreachable now due to the main loop's check.
     }
     else {
-        print_string("Unknown command: ", *current_row_ptr+1, 0);
-        print_string(command_name, *current_row_ptr+1, (int)strlen("Unknown command: "));
+        int b = 0;
+        print_string("Unknown command: ", current_row_ptr, &b);
+        int a = (int)strlen("Unknown command: ");
+        print_string(command_name, current_row_ptr, &a);
     }
 
-    *current_row_ptr += 1;
+    (*current_row_ptr) += 1;
 }
 
 
@@ -200,16 +212,19 @@ int main(void)
         get_time_string(time_str);
         if (clock_enabled) {
             if (strcmp(time_str, last_time) != 0) {
-                print_string(time_str, 24, 70);
+                int a = 24;
+                int b = 70;
+                print_string(time_str, &a, &b);
                 for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
             }
         }
 
         char prompt[MAX_PATH_LENGTH+15];
-        print_string("luma@os:~$ ", current_row, 0);
+        int b = 0;
+        print_string("luma@os:~$ ", &current_row, &b);
         strcat(prompt, current_working_directory);
-        cursor_col = 11;
-        set_cursor(cursor_col, current_row);
+        cursor_col = 11 + strlen(current_working_directory);
+        set_cursor(cursor_col, &current_row);
         buffer_pos = 0;
         for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) buffer[i] = '\0';
         while (!input_ready) {
@@ -217,7 +232,9 @@ int main(void)
             if (clock_enabled) {
                 get_time_string(time_str);
                 if (strcmp(time_str, last_time) != 0) {
-                    print_string(time_str, 24, 70);
+                    int a = 24;
+                    int b = 70;
+                    print_string(time_str, &a, &b);
                     for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
                 }
             }
@@ -235,7 +252,9 @@ int main(void)
             if (clock_enabled) {
                 get_time_string(time_str);
                 if (strcmp(time_str, last_time) != 0) {
-                    print_string(time_str, 24, 70);
+                    int a = 24;
+                    int b = 70;
+                    print_string(time_str, &a, &b);
                     for (int i = 0; i < 9; i++) last_time[i] = time_str[i];
                 }
             }
@@ -243,19 +262,22 @@ int main(void)
                 buffer[buffer_pos] = '\0';
                 if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'i' && buffer[3] == 't' && buffer[4] == '\0') {
                     current_row++;
-                    print_string("Goodbye!", current_row, 0);
+                    int b = 0;
+                    print_string("Goodbye!", &current_row, &b);
                     exit_shell = true;
                 }
                 if (buffer[0] == 'c' && buffer[1] == 'l' && buffer[2] == 'o' && buffer[3] == 'c' && buffer[4] == 'k' && buffer[5] == '\0') {
                     clock_enabled = true;
                     current_row++;
-                    print_string("Clock running...", current_row, 0);
+                    int b = 0;
+                    print_string("Clock running...", &current_row, &b);
                     current_row++;
                     break;
                 }
                 if (!exit_shell) {
                     process_command(buffer, &current_row);
                 }
+                set_cursor(cursor_col, current_row);
                 current_row++;
                 break;
             } else if (c == '\b' || c == 127) {
@@ -286,7 +308,9 @@ int main(void)
         if (current_row >= 24) {
             clear_screen();
             current_row = 2;
-            print_string("LumaOS Shell v1.0", 0, 0);
+            int a = 0;
+            int b = 0;
+            print_string("LumaOS Shell v1.0", &a, &b);
             print_string("--- Screen cleared due to overflow ---", 1, 0);
         }
     }

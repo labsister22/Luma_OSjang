@@ -235,107 +235,125 @@ void syscall(struct InterruptFrame frame)
   }
   break;
   case 22: // SYS_LIST_DIR
-  {
-    uint8_t start_print_row = (uint8_t)frame.cpu.general.ebx;
-    uint32_t dir_inode_idx = frame.cpu.general.ecx;
-    uint8_t current_print_row = start_print_row;
-    
-    const uint8_t col_name = 0;
-    const uint8_t col_type = 20; // Adjusted column for type
-    const uint8_t col_size = 27; // Adjusted column for size
+{
+    // Dapatkan ALAMAT pointer dari userspace yang dikirim melalui ebx
+    uint32_t user_row_ptr_addr = frame.cpu.general.ebx; // Ini adalah ALAMAT VIRTUAL USERSAPCE
 
+    // Validasi alamat userspace (PENTING UNTUK KEAMANAN DAN STABILITAS)
+    // Jika user_row_ptr_addr tidak berada di segmen data userspace yang valid,
+    // maka akses langsung akan menyebabkan fault.
+    // Misal: if (user_row_ptr_addr < USER_CODE_START || user_row_ptr_addr + sizeof(uint32_t) > USER_DATA_END) { /* handle error */ }
+    // Untuk saat ini, kita asumsikan image_storage adalah representasi flat memory.
+    // Jika tidak, Anda perlu mekanisme MMU atau fungsi copy_from_user/copy_to_user.
+    
+    // Baca nilai awal baris dari userspace melalui pointer tersebut.
+    // ASUMSI KRITIS: user_row_ptr_addr adalah offset yang valid dalam image_storage
+    uint32_t initial_user_row_value = *(uint32_t*)(user_row_ptr_addr);
+    uint8_t current_print_row = (uint8_t)initial_user_row_value; // Casting ke uint8_t jika baris tidak akan melebihi 255
+
+    uint32_t dir_inode_idx = frame.cpu.general.ecx;
+
+    // --- HAPUS PENCETAKAN HEADER DI SINI ---
+    // Karena header sudah dicetak oleh handle_ls di userspace
+    /*
+    const uint8_t col_name = 0;
+    const uint8_t col_type = 20;
+    const uint8_t col_size = 27;
     char header1[] = "name                type   size";
     for (int k = 0; header1[k] != '\0'; k++) {
         framebuffer_write(current_print_row, k, header1[k], 0x0F, 0x00);
     }
     current_print_row++;
-    if (current_print_row >= 24) { // Cek batas layar
+    if ((current_print_row) >= 24) {
         frame.cpu.general.eax = current_print_row;
-        goto end_list_dir_syscall_modified; // Langsung keluar jika layar penuh setelah header
+        goto end_list_dir_syscall_modified;
     }
-
-    // Header line 2: "================================"
     char header2[] = "================================";
-    for (int k = 0; header2[k] != '\0' && k < 32; k++) { // Batasi panjang header jika perlu
+    for (int k = 0; header2[k] != '\0' && k < 32; k++) {
         framebuffer_write(current_print_row, k, header2[k], 0x0F, 0x00);
     }
     current_print_row++;
-    if (current_print_row >= 24) { // Cek batas layar
+    if (current_print_row >= 24) {
         frame.cpu.general.eax = current_print_row;
-        goto end_list_dir_syscall_modified; // Langsung keluar
+        goto end_list_dir_syscall_modified;
     }
+    */
 
-    // 2. Read directory inode and list entries
+    // Lanjutkan dengan membaca direktori dan mencetak entri
     struct EXT2Inode dir_inode;
-    read_inode(dir_inode_idx, &dir_inode); 
+    read_inode(dir_inode_idx, &dir_inode);
 
     if (!(dir_inode.i_mode & EXT2_S_IFDIR)) {
-        // Jika bukan direktori, mungkin cetak pesan error atau biarkan kosong
-        // Untuk saat ini, kita kembalikan baris setelah header
-        frame.cpu.general.eax = current_print_row; 
-        break;
+        frame.cpu.general.eax = current_print_row;
+        break; // break, bukan goto, jika ini adalah error yang dihandle
     }
 
-    uint8_t block_buffer[BLOCK_SIZE]; 
-    for (uint32_t i = 0; i < dir_inode.i_blocks && i < 12; i++) { 
+    uint8_t block_buffer[BLOCK_SIZE];
+    for (uint32_t i = 0; i < dir_inode.i_blocks && i < 12; i++) {
         if (dir_inode.i_block[i] == 0) continue;
 
-        read_blocks(block_buffer, dir_inode.i_block[i], 1); 
+        read_blocks(block_buffer, dir_inode.i_block[i], 1);
 
         uint32_t offset = 0;
-        while (offset < BLOCK_SIZE) { 
+        while (offset < BLOCK_SIZE) {
             struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(block_buffer + offset);
-            
-            if (entry->inode == 0 || entry->rec_len == 0) { 
-                break; 
+
+            if (entry->inode == 0 || entry->rec_len == 0) {
+                break;
             }
-            if (offset + entry->rec_len > BLOCK_SIZE) { 
+            if (offset + entry->rec_len > BLOCK_SIZE) {
                  break;
             }
 
-            // Print entry name
+            // Print entry name, type, and size
+            const uint8_t col_name = 0; // Tetapkan kembali jika perlu
+            const uint8_t col_type = 20;
+            const uint8_t col_size = 27;
+
             char name_char;
-            const char* entry_name = (const char*)(entry + 1); // Name is stored after the struct
+            const char* entry_name = (const char*)(entry + 1);
             for(uint8_t k=0; k < entry->name_len && k < (col_type - col_name -1) ; k++) {
                  name_char = entry_name[k];
-                 if (name_char >= 32 && name_char <= 126) { 
+                 if (name_char >= 32 && name_char <= 126) {
                     framebuffer_write(current_print_row, col_name + k, name_char, 0x0F, 0x00);
                  } else {
-                    framebuffer_write(current_print_row, col_name + k, '?', 0x0F, 0x00); 
+                    framebuffer_write(current_print_row, col_name + k, '?', 0x0F, 0x00);
                  }
             }
-            
-            // Determine type string
+
             const char *type_str = "unk";
-            if (entry->file_type == 2) { // EXT2_FT_DIR
+            if (entry->file_type == 2) {
                 type_str = "dir";
-            } else if (entry->file_type == 1) { // EXT2_FT_REG_FILE
+            } else if (entry->file_type == 1) {
                 type_str = "file";
             }
             for(int k=0; type_str[k] != '\0' && k < 4; k++) {
                  framebuffer_write(current_print_row, col_type + k, type_str[k], 0x0F, 0x00);
             }
 
-            // Print size (Placeholder)
-            char size_placeholder[] = "0"; 
+            char size_placeholder[] = "0";
             for(int k=0; size_placeholder[k] != '\0'; k++) {
                  framebuffer_write(current_print_row, col_size + k, size_placeholder[k], 0x0F, 0x00);
             }
-            
-            current_print_row++;
-            if (current_print_row >= 24) { 
-                goto end_list_dir_syscall_modified; 
+
+            current_print_row++; // Kenaikan baris untuk setiap entri
+            if (current_print_row >= 24) {
+                goto end_list_dir_syscall_modified;
             }
-            
+
             offset += entry->rec_len;
         }
     }
 
-end_list_dir_syscall_modified:; // Label baru untuk goto
-    framebuffer_set_cursor(current_print_row, 0); 
-    frame.cpu.general.eax = current_print_row;    // Kembalikan baris berikutnya yang tersedia
-  }
-  break;
+    // Tulis kembali nilai `current_print_row` yang sudah diupdate ke alamat userspace
+    // PENTING: Gunakan user_row_ptr_addr sebagai offset dari image_storage.
+    *(uint32_t*)(user_row_ptr_addr) = current_print_row;
+
+    end_list_dir_syscall_modified:;
+    framebuffer_set_cursor(current_print_row, 0); // Set kursor kernel
+    frame.cpu.general.eax = current_print_row;    // Kembalikan baris berikutnya yang tersedia via EAX
+}
+break;
 
   default:
     // Unknown system call

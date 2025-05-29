@@ -7,20 +7,20 @@
 extern char current_working_directory[256];
 uint32_t current_inode = 2; // Default to root inode for directory operations
 int current_output_row = 0; // Track the current output row for commands like ls
-void print_string(const char* str, int row, int col) {
-    syscall(6, (uint32_t)str, row, col);
+void print_string(const char* str, int* row, int* col) {
+    syscall(6, (uint32_t)str, (uint32_t)row, (uint32_t)col);
 }
 
-void print_char(char c, int row, int col) {
-    syscall(5, (uint32_t)&c, col, row);
+void print_char(char c, int* row, int* col) {
+    syscall(5, (uint32_t)&c, (uint32_t)col, (uint32_t)row);
 }
 
 void print_line(const char *str)
 {
-    if (current_output_row < 24) { // Basic check to prevent writing off common screen area
-        print_string(str, current_output_row, 0);
+    if (&current_output_row < 24) { // Basic check to prevent writing off common screen area
+        print_string(str, &current_output_row, 0);
     }
-    current_output_row++;
+    (current_output_row)++;
 }
 
 // --- Helper for path concatenation (Purely for shell display, not actual FS changes) ---
@@ -108,60 +108,53 @@ void resolve_path_display(char* resolved_path, const char* path) {
 
 // --- Built-in Command Implementations (Stubs for unsupported FS operations) ---
 
-void handle_cd(const char* path, int current_row) {
-    print_string("cd: Not implemented. No suitable kernel syscall for file reading.", current_row +1 , 0);
+void handle_cd(const char* path) {
+    // print_string("cd: Not implemented. No suitable kernel syscall for file reading.", current_row +1 , 0);
     (void)path;
-    (void)current_row;
 }
-int handle_ls(int current_row) {
-    current_output_row = current_row +1;
-
+int handle_ls() { // Tidak perlu argumen row_ptr lagi
+    // Header dicetak di userspace
     print_line("name                type   size");
     print_line("================================");
 
-    // Use syscall to get directory listing
-    syscall(22, (uint32_t)current_output_row, current_inode, 0);
+    // Panggil syscall, kirim ALAMAT dari global current_output_row
+    // Agar kernel dapat membaca nilai awalnya dan menulis update-nya
+    syscall(22, (uint32_t)&current_output_row, current_inode, 0);
 
-    // Since syscall returns void, just advance the prompt after headers
-    return current_output_row + 2;
+    // Setelah syscall, `current_output_row` global sudah diupdate oleh kernel.
+    return current_output_row; // Kembalikan nilai global yang sudah diupdate
 }
 
-void handle_mkdir(const char* name, int current_row) {
-    print_string("mkdir: Not implemented. No kernel syscall for creating directories.", current_row+1, 0);
+void handle_mkdir(const char* name) {
+    // print_string("mkdir: Not implemented. No kernel syscall for creating directories.", current_row+1, 0);
     (void)name;
-    (void)current_row;
 }
 
-void handle_cat(const char* filename, int current_row) {
-    print_string("cat: Not implemented. No suitable kernel syscall for file reading.", current_row+1, 0);
+void handle_cat(const char* filename) {
+    // print_string("cat: Not implemented. No suitable kernel syscall for file reading.", current_row+1, 0);
     (void)filename;
-    (void)current_row;
 }
 
-void handle_cp(const char* source, const char* destination, int current_row) {
-    print_string("cp: requires two arguments, not supported with current string functions.", current_row+1, 0);
-    print_string("cp: Not implemented. No kernel syscalls for file copying.", current_row + 2, 0);
+void handle_cp(const char* source, const char* destination) {
+    // print_string("cp: requires two arguments, not supported with current string functions.", current_row+1, 0);
+    // print_string("cp: Not implemented. No kernel syscalls for file copying.", current_row + 2, 0);
     (void)source;
     (void)destination;
-    (void)current_row;
 }
 
-void handle_rm(const char* path, int current_row) {
-    print_string("rm: Not implemented. No kernel syscall for removing files/directories.", current_row+1, 0);
+void handle_rm(const char* path) {
+    // print_string("rm: Not implemented. No kernel syscall for removing files/directories.", current_row+1, 0);
     (void)path;
-    (void)current_row;
 }
 
-void handle_mv(const char* source, const char* destination, int current_row) {
-    print_string("mv: requires two arguments, not supported with current string functions.", current_row+1, 0);
-    print_string("mv: Not implemented. No kernel syscall for moving/renaming files.", current_row + 2, 0);
+void handle_mv(const char* source, const char* destination) {
+    // print_string("mv: requires two arguments, not supported with current string functions.", current_row+1, 0);
+    // print_string("mv: Not implemented. No kernel syscall for moving/renaming files.", current_row + 2, 0);
     (void)source;
     (void)destination;
-    (void)current_row;
 }
 
-void handle_find(const char* name, int current_row) {
-    print_string("find: Not implemented. No kernel syscall for recursive file search.", current_row+1, 0);
+void handle_find(const char* name) {
+    // print_string("find: Not implemented. No kernel syscall for recursive file search.", current_row+1, 0);
     (void)name;
-    (void)current_row;
 }
