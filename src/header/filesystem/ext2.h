@@ -419,4 +419,47 @@ void add_inode_to_dir(struct EXT2Inode *dir_inode, uint32_t inode, const char *n
 bool is_empty_directory(struct EXT2Inode *inode);
 void remove_inode_from_dir(struct EXT2Inode *dir_inode, const char *name);
 
+// ...existing code...
+
+/**
+ * @brief Membaca data dari inode dengan dukungan indirect blocks
+ * @param inode Pointer ke struktur inode
+ * @param buf Buffer untuk menyimpan data yang dibaca
+ * @param size Ukuran data yang akan dibaca
+ */
+void read_inode_data_extended(struct EXT2Inode *inode, void *buf, uint32_t size);
+
+/**
+ * @brief Mengalokasi blok untuk inode dengan dukungan indirect blocks
+ * @param ptr Buffer data yang akan ditulis
+ * @param node Pointer ke struktur inode
+ * @param preferred_bgd BGD yang diinginkan untuk alokasi
+ */
+void allocate_node_blocks_extended(void *ptr, struct EXT2Inode *node, uint32_t preferred_bgd);
+
+/**
+ * @brief Fungsi dealokasi blok dengan dukungan indirect blocks
+ * @param inode Pointer ke struktur inode yang akan didealokasi
+ */
+void deallocate_node_blocks_extended(struct EXT2Inode *inode);
+
+/**
+ * @brief Membaca blok dengan indeks logis (mendukung indirect blocks)
+ * @param inode Pointer ke struktur inode
+ * @param logical_block_idx Indeks blok logis (0, 1, 2, ...)
+ * @return Physical block number, atau 0 jika tidak ada
+ */
+uint32_t get_physical_block_from_logical(struct EXT2Inode *inode, uint32_t logical_block_idx);
+
+/**
+ * @brief Mengalokasi blok dengan indeks logis (mendukung indirect blocks)
+ * @param inode Pointer ke struktur inode
+ * @param logical_block_idx Indeks blok logis
+ * @param preferred_bgd BGD yang diinginkan
+ * @return Physical block number yang dialokasi
+ */
+uint32_t allocate_logical_block(struct EXT2Inode *inode, uint32_t logical_block_idx, uint32_t preferred_bgd);
+
+// ...existing code...
+
 #endif

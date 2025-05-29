@@ -145,23 +145,61 @@ void resolve_path_display(char* resolved_path, const char* path) {
     }
 }
 
-
+uint32_t find_inode_by_name(uint32_t parent_inode, const char* name) {
+    struct EXT2Inode dir_inode;
+    read_inode(parent_inode, &dir_inode);
+    
+    if (!(dir_inode.i_mode & EXT2_S_IFDIR)) {
+        return 0; // Not a directory
+    }
+    
+    uint8_t block_buffer[BLOCK_SIZE];
+    for (uint32_t i = 0; i < dir_inode.i_blocks && i < 12; i++) {
+        if (dir_inode.i_block[i] == 0) continue;
+        
+        read_blocks(block_buffer, dir_inode.i_block[i], 1);
+        
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(block_buffer + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            const char* entry_name = (const char*)(entry + 1);
+            
+            // Compare names
+            if (entry->name_len == strlen(name)) {
+                int match = 1;
+                for (uint8_t k = 0; k < entry->name_len; k++) {
+                    if (entry_name[k] != name[k]) {
+                        match = 0;
+                        break;
+                    }
+                }
+                if (match) {
+                    return entry->inode;
+                }
+            }
+            
+            offset += entry->rec_len;
+        }
+    }
+    
+    return 0; // Not found
+}
 // --- Built-in Command Implementations (Stubs for unsupported FS operations) ---
 
 void handle_cd(const char *path) {
     if (!path || strlen(path) == 0) {
-        int b = 0;
-        print_string("Error: Missing argument", &current_output_row, &b);
-        current_output_row++;
+        print_line("Error: Missing argument");
         return;
     }
 
     uint32_t target_inode = resolve_path(path);
 
     if (target_inode == 9999) {
-        int b = 0;
-        print_string("Error: Path not found", &current_output_row, &b);
-        current_output_row++;
+        print_line("Error: Path not found");
         return;
     }
 
@@ -172,9 +210,7 @@ void handle_cd(const char *path) {
     // Update working directory string using resolve_path_display
     resolve_path_display(current_working_directory, path);
     
-    int b = 0;
-    print_string("Directory changed", &current_output_row, &b);
-    current_output_row++;
+    print_line("Directory changed");
 }
 int handle_ls() { // Tidak perlu argumen row_ptr lagi
     // Header dicetak di userspace
@@ -191,9 +227,53 @@ int handle_ls() { // Tidak perlu argumen row_ptr lagi
 }
 
 void handle_mkdir(const char* name) {
-    // print_string("mkdir: Not implemented. No kernel syscall for creating directories.", current_row+1, 0);
-    (void)name;
+    if (!name || strlen(name) == 0) {
+        print_line("mkdir: missing argument");
+        return;
+    }
+
+
+    struct EXT2DriverRequest request;
+    memset(&request, 0, sizeof(request));
+    request.parent_inode = current_inode;
+    request.name_len = strlen(name);
+    request.is_directory = 1;
+    request.buffer_size = 0;
+    request.buf = NULL;
+    
+    // Copy nama
+    size_t copy_len = strlen(name);
+    if (copy_len >= sizeof(request.name)) {
+        copy_len = sizeof(request.name) - 1;
+    }
+    for (size_t i = 0; i < copy_len; i++) {
+        request.name[i] = name[i];
+    }
+    request.name[copy_len] = '\0';
+
+
+    int8_t result;
+    syscall(24, (uint32_t)&request, (uint32_t)&result, 0);
+
+    int b = 0;
+    if (result == 0) {
+        print_string("Directory created: ", &current_output_row, &b);
+        print_string(name, &current_output_row, &b);
+        current_output_row++;
+    } else if (result == 1) {
+        print_string("mkdir: directory '", &current_output_row, &b);
+        print_string(name, &current_output_row, &b);
+        print_string("' already exists", &current_output_row, &b);
+        current_output_row++;
+    } else if (result == 2) {
+        print_string("mkdir: parent is not a directory", &current_output_row, &b);
+        current_output_row++;
+    } else {
+        print_string("mkdir: failed to create directory", &current_output_row, &b);
+        current_output_row++;
+    }
 }
+
 
 void handle_cat(const char* filename) {
     // print_string("cat: Not implemented. No suitable kernel syscall for file reading.", current_row+1, 0);
@@ -201,12 +281,115 @@ void handle_cat(const char* filename) {
 }
 
 void handle_cp(const char* source, const char* destination) {
-    // print_string("cp: requires two arguments, not supported with current string functions.", current_row+1, 0);
-    // print_string("cp: Not implemented. No kernel syscalls for file copying.", current_row + 2, 0);
-    (void)source;
-    (void)destination;
-}
+    if (!source || !destination || strlen(source) == 0 || strlen(destination) == 0) {
+        print_line("cp: missing arguments");
+        return;
+    }
 
+    // Find source file in current directory
+    uint32_t src_inode = find_inode_by_name(current_inode, source);
+    if (src_inode == 0) {
+        int b = 0;
+        print_string("cp: cannot stat '", &current_output_row, &b);
+        print_string(source, &current_output_row, &b);
+        print_string("': No such file", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    // Check if source is a directory
+    struct EXT2Inode src_inode_data;
+    read_inode(src_inode, &src_inode_data);
+    if (src_inode_data.i_mode & EXT2_S_IFDIR) {
+        int b = 0;
+        print_string("cp: cannot copy directory '", &current_output_row, &b);
+        print_string(source, &current_output_row, &b);
+        print_string("' (not supported)", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    // Check if destination already exists
+    uint32_t dst_inode = find_inode_by_name(current_inode, destination);
+    if (dst_inode != 0) {
+        int b = 0;
+        print_string("cp: cannot create '", &current_output_row, &b);
+        print_string(destination, &current_output_row, &b);
+        print_string("': File exists", &current_output_row, &b);
+        current_output_row++;
+        return;
+    }
+
+    // Prepare requests for syscall
+    struct EXT2DriverRequest src_request;
+    struct EXT2DriverRequest dst_request;
+    
+    memset(&src_request, 0, sizeof(src_request));
+    memset(&dst_request, 0, sizeof(dst_request));
+    
+    // Source request
+    src_request.parent_inode = current_inode;
+    src_request.name_len = strlen(source);
+    size_t src_copy_len = strlen(source);
+    if (src_copy_len >= sizeof(src_request.name)) {
+        src_copy_len = sizeof(src_request.name) - 1;
+    }
+    for (size_t i = 0; i < src_copy_len; i++) {
+        src_request.name[i] = source[i];
+    }
+    src_request.name[src_copy_len] = '\0';
+    
+    // Destination request
+    dst_request.parent_inode = current_inode;
+    dst_request.name_len = strlen(destination);
+    size_t dst_copy_len = strlen(destination);
+    if (dst_copy_len >= sizeof(dst_request.name)) {
+        dst_copy_len = sizeof(dst_request.name) - 1;
+    }
+    for (size_t i = 0; i < dst_copy_len; i++) {
+        dst_request.name[i] = destination[i];
+    }
+    dst_request.name[dst_copy_len] = '\0';
+
+    // Call copy syscall
+    int8_t result;
+    syscall(25, (uint32_t)&src_request, (uint32_t)&dst_request, (uint32_t)&result);
+
+    // Handle result
+    int b = 0;
+    switch (result) {
+        case 0:
+            print_string("File '", &current_output_row, &b);
+            print_string(source, &current_output_row, &b);
+            print_string("' copied to '", &current_output_row, &b);
+            print_string(destination, &current_output_row, &b);
+            print_string("'", &current_output_row, &b);
+            current_output_row++;
+            break;
+        case -2:
+            print_string("cp: cannot stat '", &current_output_row, &b);
+            print_string(source, &current_output_row, &b);
+            print_string("': No such file", &current_output_row, &b);
+            current_output_row++;
+            break;
+        case -3:
+            print_string("cp: cannot copy directory '", &current_output_row, &b);
+            print_string(source, &current_output_row, &b);
+            print_string("'", &current_output_row, &b);
+            current_output_row++;
+            break;
+        case -4:
+            print_string("cp: cannot create '", &current_output_row, &b);
+            print_string(destination, &current_output_row, &b);
+            print_string("': File exists", &current_output_row, &b);
+            current_output_row++;
+            break;
+        default:
+            print_string("cp: copy failed", &current_output_row, &b);
+            current_output_row++;
+            break;
+    }
+}
 void handle_rm(const char* path) {
     // print_string("rm: Not implemented. No kernel syscall for removing files/directories.", current_row+1, 0);
     (void)path;

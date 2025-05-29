@@ -124,6 +124,212 @@ struct rtc_time
 
 struct Time get_cmos_time();
 
+int8_t create_directory(struct EXT2DriverRequest *request) {
+    // Validasi input parameter
+    if (!request || request->name_len == 0) {
+        return -1; // Invalid parameter
+    }
+    
+    // 1. Validasi parent directory exists dan valid
+    struct EXT2Inode parent_inode;
+    read_inode(request->parent_inode, &parent_inode);
+    
+    // Pastikan parent adalah directory
+    if (!(parent_inode.i_mode & EXT2_S_IFDIR)) {
+        return -2; // Parent is not a directory
+    }
+    
+    // 2. Cek apakah file/directory dengan nama yang sama sudah ada
+    // Baca directory entries secara manual untuk pengecekan yang lebih akurat
+    uint8_t dir_block[BLOCK_SIZE];
+    bool name_exists = false;
+    
+    // Periksa setiap block dari parent directory
+    for (uint32_t block_idx = 0; block_idx < parent_inode.i_blocks && block_idx < 12; block_idx++) {
+        if (parent_inode.i_block[block_idx] == 0) continue;
+        
+        read_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+        
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            // Bandingkan nama
+            char *entry_name = (char *)(entry + 1);
+            if (entry->name_len == request->name_len) {
+                bool names_match = true;
+                for (uint8_t i = 0; i < entry->name_len; i++) {
+                    if (entry_name[i] != request->name[i]) {
+                        names_match = false;
+                        break;
+                    }
+                }
+                if (names_match) {
+                    name_exists = true;
+                    break;
+                }
+            }
+            
+            offset += entry->rec_len;
+        }
+        
+        if (name_exists) break;
+    }
+    
+    if (name_exists) {
+        return -3; // Directory/file already exists
+    }
+    
+    // 3. Alokasi inode baru untuk directory
+    uint32_t new_inode_idx = allocate_node();
+    if (new_inode_idx == 0) {
+        return -4; // Failed to allocate inode
+    }
+    
+    // 4. Initialize inode untuk directory
+    struct EXT2Inode new_dir_inode;
+    // Clear semua field terlebih dahulu
+    for (int i = 0; i < (int)sizeof(struct EXT2Inode); i++) {
+        ((uint8_t*)&new_dir_inode)[i] = 0;
+    }
+
+    // Set directory properties
+    new_dir_inode.i_mode = EXT2_S_IFDIR; // Set sebagai directory
+    new_dir_inode.i_size = BLOCK_SIZE; // Ukuran minimal directory (1 block)
+    new_dir_inode.i_blocks = 1; // Menggunakan 1 block
+    
+    // 5. Alokasi block untuk directory entries
+    uint32_t bgd_idx = inode_to_bgd(new_inode_idx);
+    int32_t new_block = allocate_block(bgd_idx);
+    if (new_block < 0) {
+        // Gagal alokasi block, dealokasi inode
+        clear_inode_used(new_inode_idx);
+        return -5; // Failed to allocate block
+    }
+    
+    new_dir_inode.i_block[0] = new_block;
+    
+    // 6. Buat directory table dengan entries "." dan ".."
+    //uint8_t dir_block[BLOCK_SIZE];
+    // Clear block terlebih dahulu
+    for (int i = 0; i < BLOCK_SIZE; i++) {
+        dir_block[i] = 0;
+    }
+    
+    uint32_t offset = 0;
+    
+    // Entry untuk "." (current directory)
+    struct EXT2DirectoryEntry *current_entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+    current_entry->inode = new_inode_idx;
+    current_entry->name_len = 1;
+    current_entry->file_type = EXT2_FT_DIR;
+    current_entry->rec_len = get_entry_record_len(1);
+    
+    // Tulis nama "."
+    char *name_ptr = (char *)(current_entry + 1);
+    name_ptr[0] = '.';
+    
+    offset += current_entry->rec_len;
+    
+    // Entry untuk ".." (parent directory)
+    struct EXT2DirectoryEntry *parent_entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+    parent_entry->inode = request->parent_inode;
+    parent_entry->name_len = 2;
+    parent_entry->file_type = EXT2_FT_DIR;
+    // Set rec_len ke sisa block untuk mengisi space yang tersisa
+    parent_entry->rec_len = BLOCK_SIZE - offset;
+    
+    // Tulis nama ".."
+    name_ptr = (char *)(parent_entry + 1);
+    name_ptr[0] = '.';
+    name_ptr[1] = '.';
+    
+    // 7. Tulis directory block ke disk
+    write_blocks(dir_block, new_block, 1);
+    
+    // 8. Sync inode baru ke disk
+    sync_node(&new_dir_inode, new_inode_idx);
+    
+    // 9. Tambahkan entry baru ke parent directory secara manual
+    // Cari block dengan space yang cukup atau alokasi block baru
+    bool entry_added = false;
+    
+    for (uint32_t block_idx = 0; block_idx < parent_inode.i_blocks && block_idx < 12; block_idx++) {
+        if (parent_inode.i_block[block_idx] == 0) continue;
+        
+        read_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+        
+        uint32_t offset = 0;
+        struct EXT2DirectoryEntry *last_entry = NULL;
+        
+        // Cari entry terakhir dalam block
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            last_entry = entry;
+            offset += entry->rec_len;
+        }
+        
+        if (last_entry) {
+            // Hitung space yang dibutuhkan untuk entry baru
+            uint16_t new_entry_size = get_entry_record_len(request->name_len);
+            uint16_t actual_last_size = get_entry_record_len(last_entry->name_len);
+            uint16_t available_space = last_entry->rec_len - actual_last_size;
+            
+            if (available_space >= new_entry_size) {
+                // Ada cukup space, buat entry baru
+                uint32_t last_entry_offset = (uint8_t*)last_entry - dir_block;
+                
+                // Sesuaikan rec_len dari entry terakhir
+                last_entry->rec_len = actual_last_size;
+                
+                // Buat entry baru
+                uint32_t new_entry_offset = last_entry_offset + actual_last_size;
+                struct EXT2DirectoryEntry *new_entry = (struct EXT2DirectoryEntry *)(dir_block + new_entry_offset);
+                
+                new_entry->inode = new_inode_idx;
+                new_entry->name_len = request->name_len;
+                new_entry->file_type = EXT2_FT_DIR; // Pastikan ini adalah directory!
+                new_entry->rec_len = BLOCK_SIZE - new_entry_offset; // Sisa space di block
+                
+                // Copy nama
+                char *new_name_ptr = (char *)(new_entry + 1);
+                for (uint8_t i = 0; i < request->name_len; i++) {
+                    new_name_ptr[i] = request->name[i];
+                }
+                
+                // Tulis block yang sudah dimodifikasi
+                write_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+                entry_added = true;
+                break;
+            }
+        }
+    }
+    
+    // Jika belum bisa menambahkan entry, mungkin perlu alokasi block baru untuk parent
+    if (!entry_added) {
+        // Untuk sederhananya, return error jika parent directory penuh
+        // Dalam implementasi lengkap, kita harus alokasi block baru untuk parent
+        clear_inode_used(new_inode_idx);
+        set_block_free(new_block);
+        return -6; // Parent directory full
+    }
+    
+    // 10. Sync parent directory inode ke disk (update i_size jika diperlukan)
+    sync_node(&parent_inode, request->parent_inode);
+    
+    // 11. Update superblock untuk mencerminkan penggunaan resource baru
+    sync_superblock();
+    
+    return 0; // Success
+}
+
 void syscall(struct InterruptFrame frame)
 {
   switch (frame.cpu.general.eax)
@@ -235,27 +441,27 @@ void syscall(struct InterruptFrame frame)
   }
   break;
   case 18: // SYS_CHANGE_DIR
-{
-    uint32_t target_inode = frame.cpu.general.ebx;
-    // char* path = (char*)frame.cpu.general.ecx;
-    // bool update_display = (bool)frame.cpu.general.edx;
-    if (target_inode == 0 || target_inode > 1000) { // Simple bounds check
-        frame.cpu.general.eax = 1; // Error - invalid inode
-        break;
-    }
-    // Simple validation - check if inode exists
-    struct EXT2Inode inode;
-    read_inode(target_inode, &inode);
-    
-    // Check if it's a directory
-    if (!(inode.i_mode & EXT2_S_IFDIR)) {
-        frame.cpu.general.eax = 2; // Error - not a directory
-        break;
-    }
-    
-    // Success - it's a valid directory
-    frame.cpu.general.eax = 0; // Success
-}
+  {
+      uint32_t target_inode = frame.cpu.general.ebx;
+      // char* path = (char*)frame.cpu.general.ecx;
+      // bool update_display = (bool)frame.cpu.general.edx;
+      if (target_inode == 0 || target_inode > 1000) { // Simple bounds check
+          frame.cpu.general.eax = 1; // Error - invalid inode
+          break;
+      }
+      // Simple validation - check if inode exists
+      struct EXT2Inode inode;
+      read_inode(target_inode, &inode);
+      
+      // Check if it's a directory
+      if (!(inode.i_mode & EXT2_S_IFDIR)) {
+          frame.cpu.general.eax = 2; // Error - not a directory
+          break;
+      }
+      
+      // Success - it's a valid directory
+      frame.cpu.general.eax = 0; // Success
+  }
   break;
   case 22: // SYS_LIST_DIR
 {
@@ -378,11 +584,30 @@ void syscall(struct InterruptFrame frame)
 }
 break;
 
+  case 24:
+  { struct EXT2DriverRequest *request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+    int8_t *result = (int8_t *)frame.cpu.general.ecx;
+    
+    *result = create_directory(request);
+    break;
+  }
+
+  case 28: // SYS_COPY_FILE
+  {
+    struct EXT2DriverRequest *src_request = (struct EXT2DriverRequest *)frame.cpu.general.ebx;
+    struct EXT2DriverRequest *dst_request = (struct EXT2DriverRequest *)frame.cpu.general.ecx;
+    int8_t *result = (int8_t *)frame.cpu.general.edx;
+    
+    *result = copy_file(src_request, dst_request);
+    break;
+  }
+
   default:
     // Unknown system call
     break;
   }
 }
+
 
 void isr_handler(struct InterruptFrame frame)
 {

@@ -87,6 +87,7 @@ void process_command(char* command_buffer) {
 
     char* command_name = command_buffer;
     char* arg1 = NULL;
+    char* arg2 = NULL;
 
     // Manual attempt to find the first space to separate command and first argument.
     // This is a very basic replacement for strtok for only one argument.
@@ -134,8 +135,11 @@ void process_command(char* command_buffer) {
             print_line("cat: missing argument");
         }
     } else if (strcmp(command_name, "cp") == 0) {
-        // This command needs two arguments, which cannot be parsed with current string functions
-        // print_string("cp: requires two arguments, not supported with current string functions.", current_row_ptr, 0);
+        if (arg1 && arg2) {
+            handle_cp(arg1, arg2);
+        } else {
+            print_line("cp: missing arguments (usage: cp source destination)");
+        }
     } else if (strcmp(command_name, "rm") == 0) {
         if (arg1) {
             handle_rm(arg1);
@@ -272,12 +276,19 @@ int main(void)
                     // Tidak perlu increment lagi di sini.
                     break;
             } else if (c == '\b' || c == 127) {
-                if (buffer_pos > 0 && cursor_col_for_input > 11 + (int)strlen(current_working_directory)) { // Pastikan tidak menghapus prompt
-                        buffer_pos--;
-                        cursor_col_for_input--;
-                        buffer[buffer_pos] = '\0';
-                        print_char(' ', &current_output_row, &cursor_col_for_input); // Hapus karakter
-                        set_cursor(cursor_col_for_input, current_output_row);
+                if (buffer_pos > 0 && cursor_col_for_input > 11 + (int)strlen(current_working_directory)) {
+                    buffer_pos--;
+                    cursor_col_for_input--;
+                    buffer[buffer_pos] = '\0';
+                    
+                    // Move cursor back first, then overwrite with space
+                    set_cursor(cursor_col_for_input, current_output_row);
+                    
+                    // Write space without using print_char (to avoid auto-increment)
+                    syscall(5, (uint32_t)' ', cursor_col_for_input, current_output_row);
+                    
+                    // Keep cursor at the correct position
+                    set_cursor(cursor_col_for_input, current_output_row);
                 }
             } else if (c >= 32 && c <= 126 && buffer_pos < COMMAND_BUFFER_SIZE - 1) { // Karakter biasa
                     buffer[buffer_pos] = c;

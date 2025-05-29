@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include "header/stdlib/string.h"
+#include "header/filesystem/ext2.h"
 
 extern char current_working_directory[256]; // Assuming MAX_PATH_LENGTH from user-shell.c
 extern void syscall(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx);
