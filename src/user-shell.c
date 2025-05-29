@@ -206,9 +206,14 @@ int main(void)
         }
 
         char prompt[MAX_PATH_LENGTH+15];
-        print_string("luma@os:~$ ", current_row, 0);
-        strcat(prompt, current_working_directory);
-        cursor_col = 11;
+        print_string("luma@os:~", current_row, 0);
+        char lumaos[] = "luma@OS:~";
+        strcpy(prompt, lumaos); // Use allowed strcpy
+        strcat(prompt, current_working_directory); // Use allowed strcat
+        char dollar[] = "$ ";
+        strcat(prompt, dollar); // Use allowed strcat
+        print_string(prompt, current_row, 0);
+        cursor_col = (int)strlen(prompt);
         set_cursor(cursor_col, current_row);
         buffer_pos = 0;
         for (int i = 0; i < COMMAND_BUFFER_SIZE; i++) buffer[i] = '\0';

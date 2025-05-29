@@ -42,13 +42,15 @@ void resolve_path_display(char* resolved_path, const char* path) {
     } else { // Relative path
         strcpy(temp_path, current_working_directory); // Use allowed strcpy
         if (strlen(temp_path) > 1 && temp_path[strlen(temp_path) - 1] != '/') {
-            strcat(temp_path, "/"); // Use allowed strcat
+            char slash[] = "/";
+            strcat(temp_path, slash); // Use allowed strcat
         }
         strcat(temp_path, path); // Use allowed strcat
     }
 
     char normalized_path[256];
-    strcpy(normalized_path, "/"); // Use allowed strcpy
+    char slash[] = "/";
+    strcpy(normalized_path, slash); // Use allowed strcpy
 
     ptr = temp_path;
     while (*ptr) {
@@ -109,9 +111,10 @@ void resolve_path_display(char* resolved_path, const char* path) {
 // --- Built-in Command Implementations (Stubs for unsupported FS operations) ---
 
 void handle_cd(const char* path, int current_row) {
-    print_string("cd: Not implemented. No suitable kernel syscall for file reading.", current_row +1 , 0);
-    (void)path;
-    (void)current_row;
+    char resolved_path[256];
+    resolve_path_display(resolved_path, path);
+    strcpy(current_working_directory, resolved_path); // Update the global CWD
+    print_string(resolved_path, current_row + 1, 0);
 }
 int handle_ls(int current_row) {
     current_output_row = current_row +1;
