@@ -70,8 +70,6 @@ void clear_inode_used(uint32_t inode)
   write_blocks(&buffer, bgd_table.table[group].bg_inode_bitmap, 1);
 }
 
-// Tambahkan sebelum fungsi write()
-
 void init_directory_table(struct EXT2Inode *node, uint32_t inode, uint32_t parent_inode)
 {
   uint8_t dir_data[BLOCK_SIZE] = {0};
@@ -96,6 +94,306 @@ void init_directory_table(struct EXT2Inode *node, uint32_t inode, uint32_t paren
   name[1] = '.';
 
   write_blocks(dir_data, node->i_block[0], 1);
+}
+
+/**
+ * @brief Mendapatkan nomor blok fisik dari indeks blok logis
+ */
+uint32_t get_physical_block_from_logical(struct EXT2Inode *inode, uint32_t logical_block_idx)
+{
+    const uint32_t ptrs_per_block = BLOCK_SIZE / sizeof(uint32_t); // 128 untuk BLOCK_SIZE=512
+    
+    if (logical_block_idx < 12) {
+        // Direct blocks (0-11)
+        return inode->i_block[logical_block_idx];
+    }
+    else if (logical_block_idx < 12 + ptrs_per_block) {
+        // Single indirect block (12 sampai 139 untuk BLOCK_SIZE=512)
+        if (inode->i_block[12] == 0) return 0;
+        
+        uint32_t indirect_table[ptrs_per_block];
+        read_blocks(indirect_table, inode->i_block[12], 1);
+        
+        uint32_t indirect_idx = logical_block_idx - 12;
+        return indirect_table[indirect_idx];
+    }
+    else if (logical_block_idx < 12 + ptrs_per_block + (ptrs_per_block * ptrs_per_block)) {
+        // Double indirect block (140 sampai 16523 untuk BLOCK_SIZE=512)
+        if (inode->i_block[13] == 0) return 0;
+        
+        uint32_t double_indirect_table[ptrs_per_block];
+        read_blocks(double_indirect_table, inode->i_block[13], 1);
+        
+        uint32_t double_indirect_base = 12 + ptrs_per_block;
+        uint32_t double_indirect_offset = logical_block_idx - double_indirect_base;
+        uint32_t first_level_idx = double_indirect_offset / ptrs_per_block;
+        uint32_t second_level_idx = double_indirect_offset % ptrs_per_block;
+        
+        if (double_indirect_table[first_level_idx] == 0) return 0;
+        
+        uint32_t indirect_table[ptrs_per_block];
+        read_blocks(indirect_table, double_indirect_table[first_level_idx], 1);
+        
+        return indirect_table[second_level_idx];
+    }
+    
+    // Triple indirect tidak diimplementasikan untuk filesystem 4MB
+    return 0;
+}
+
+/**
+ * @brief Mengalokasi blok pada indeks logis tertentu
+ */
+uint32_t allocate_logical_block(struct EXT2Inode *inode, uint32_t logical_block_idx, uint32_t preferred_bgd)
+{
+    const uint32_t ptrs_per_block = BLOCK_SIZE / sizeof(uint32_t);
+    
+    if (logical_block_idx < 12) {
+        // Direct blocks
+        if (inode->i_block[logical_block_idx] == 0) {
+            inode->i_block[logical_block_idx] = allocate_block(preferred_bgd);
+        }
+        return inode->i_block[logical_block_idx];
+    }
+    else if (logical_block_idx < 12 + ptrs_per_block) {
+        // Single indirect block
+        
+        // Alokasi blok untuk indirect table jika belum ada
+        if (inode->i_block[12] == 0) {
+            inode->i_block[12] = allocate_block(preferred_bgd);
+            
+            // Inisialisasi indirect table dengan nol
+            uint32_t zero_table[ptrs_per_block];
+            memset(zero_table, 0, BLOCK_SIZE);
+            write_blocks(zero_table, inode->i_block[12], 1);
+        }
+        
+        // Baca indirect table
+        uint32_t indirect_table[ptrs_per_block];
+        read_blocks(indirect_table, inode->i_block[12], 1);
+        
+        uint32_t indirect_idx = logical_block_idx - 12;
+        
+        // Alokasi blok data jika belum ada
+        if (indirect_table[indirect_idx] == 0) {
+            indirect_table[indirect_idx] = allocate_block(preferred_bgd);
+            write_blocks(indirect_table, inode->i_block[12], 1);
+        }
+        
+        return indirect_table[indirect_idx];
+    }
+    else if (logical_block_idx < 12 + ptrs_per_block + (ptrs_per_block * ptrs_per_block)) {
+        // Double indirect block
+        
+        // Alokasi blok untuk double indirect table jika belum ada
+        if (inode->i_block[13] == 0) {
+            inode->i_block[13] = allocate_block(preferred_bgd);
+            
+            uint32_t zero_table[ptrs_per_block];
+            memset(zero_table, 0, BLOCK_SIZE);
+            write_blocks(zero_table, inode->i_block[13], 1);
+        }
+        
+        // Baca double indirect table
+        uint32_t double_indirect_table[ptrs_per_block];
+        read_blocks(double_indirect_table, inode->i_block[13], 1);
+        
+        uint32_t double_indirect_base = 12 + ptrs_per_block;
+        uint32_t double_indirect_offset = logical_block_idx - double_indirect_base;
+        uint32_t first_level_idx = double_indirect_offset / ptrs_per_block;
+        uint32_t second_level_idx = double_indirect_offset % ptrs_per_block;
+        
+        // Alokasi blok untuk indirect table level kedua jika belum ada
+        if (double_indirect_table[first_level_idx] == 0) {
+            double_indirect_table[first_level_idx] = allocate_block(preferred_bgd);
+            write_blocks(double_indirect_table, inode->i_block[13], 1);
+            
+            uint32_t zero_table[ptrs_per_block];
+            memset(zero_table, 0, BLOCK_SIZE);
+            write_blocks(zero_table, double_indirect_table[first_level_idx], 1);
+        }
+        
+        // Baca indirect table level kedua
+        uint32_t indirect_table[ptrs_per_block];
+        read_blocks(indirect_table, double_indirect_table[first_level_idx], 1);
+        
+        // Alokasi blok data jika belum ada
+        if (indirect_table[second_level_idx] == 0) {
+            indirect_table[second_level_idx] = allocate_block(preferred_bgd);
+            write_blocks(indirect_table, double_indirect_table[first_level_idx], 1);
+        }
+        
+        return indirect_table[second_level_idx];
+    }
+    
+    return 0; // Triple indirect tidak didukung
+}
+
+/**
+ * @brief Membaca data dari inode dengan dukungan indirect blocks
+ */
+void read_inode_data_extended(struct EXT2Inode *inode, void *buf, uint32_t size)
+{
+    if (inode == NULL || buf == NULL || size == 0)
+        return;
+
+    uint32_t bytes_read = 0;
+    uint32_t logical_block_idx = 0;
+    uint32_t total_blocks = ceil_div(inode->i_size, BLOCK_SIZE);
+    
+    uint8_t *output_buffer = (uint8_t *)buf;
+
+    while (bytes_read < size && logical_block_idx < total_blocks)
+    {
+        // Dapatkan nomor blok fisik
+        uint32_t physical_block = get_physical_block_from_logical(inode, logical_block_idx);
+        
+        if (physical_block != 0) {
+            uint8_t block_buf[BLOCK_SIZE];
+            read_blocks(block_buf, physical_block, 1);
+
+            uint32_t to_read = size - bytes_read;
+            if (to_read > BLOCK_SIZE)
+                to_read = BLOCK_SIZE;
+                
+            // Untuk blok terakhir, batasi sesuai ukuran file sebenarnya
+            uint32_t file_bytes_remaining = inode->i_size - bytes_read;
+            if (to_read > file_bytes_remaining)
+                to_read = file_bytes_remaining;
+
+            memcpy(output_buffer + bytes_read, block_buf, to_read);
+            bytes_read += to_read;
+        } else {
+            // Blok tidak dialokasi, isi dengan nol (sparse file)
+            uint32_t to_read = size - bytes_read;
+            if (to_read > BLOCK_SIZE)
+                to_read = BLOCK_SIZE;
+                
+            uint32_t file_bytes_remaining = inode->i_size - bytes_read;
+            if (to_read > file_bytes_remaining)
+                to_read = file_bytes_remaining;
+            
+            memset(output_buffer + bytes_read, 0, to_read);
+            bytes_read += to_read;
+        }
+        
+        logical_block_idx++;
+    }
+}
+
+/**
+ * @brief Mengalokasi blok untuk inode dengan dukungan indirect blocks
+ */
+void allocate_node_blocks_extended(void *ptr, struct EXT2Inode *node, uint32_t preferred_bgd)
+{
+    uint32_t blocks_needed = ceil_div(node->i_size, BLOCK_SIZE);
+    uint8_t *data = (uint8_t *)ptr;
+    
+    // Update jumlah blok yang dialokasikan
+    node->i_blocks = blocks_needed;
+    
+    // Batasi maksimum blok yang didukung untuk filesystem 4MB
+    const uint32_t ptrs_per_block = BLOCK_SIZE / sizeof(uint32_t); // 128
+    uint32_t max_direct = 12;
+    uint32_t max_single_indirect = ptrs_per_block; // 128
+    uint32_t max_double_indirect = ptrs_per_block * ptrs_per_block; // 16384
+    uint32_t max_supported = max_direct + max_single_indirect + max_double_indirect; // 16524
+    
+    if (blocks_needed > max_supported) {
+        DEBUG_PRINT("Error: File terlalu besar. Max blok yang didukung: %u, diminta: %u\n", 
+                   max_supported, blocks_needed);
+        blocks_needed = max_supported;
+        node->i_blocks = blocks_needed;
+    }
+
+    // Alokasi blok secara berurutan
+    for (uint32_t logical_block_idx = 0; logical_block_idx < blocks_needed; logical_block_idx++) {
+        uint32_t physical_block = allocate_logical_block(node, logical_block_idx, preferred_bgd);
+        
+        if (physical_block != 0) {
+            // Tulis data ke blok
+            uint32_t bytes_to_write = node->i_size - (logical_block_idx * BLOCK_SIZE);
+            if (bytes_to_write > BLOCK_SIZE)
+                bytes_to_write = BLOCK_SIZE;
+
+            uint8_t buffer[BLOCK_SIZE] = {0};
+            if (data != NULL) {
+                memcpy(buffer, data + (logical_block_idx * BLOCK_SIZE), bytes_to_write);
+            }
+            write_blocks(buffer, physical_block, 1);
+        } else {
+            DEBUG_PRINT("Error: Gagal mengalokasi blok logis %u\n", logical_block_idx);
+            break;
+        }
+    }
+}
+
+/**
+ * @brief Fungsi dealokasi blok dengan dukungan indirect blocks
+ */
+void deallocate_node_blocks_extended(struct EXT2Inode *inode)
+{
+    if (inode == NULL) return;
+    
+    const uint32_t ptrs_per_block = BLOCK_SIZE / sizeof(uint32_t);
+    
+    // Dealokasi direct blocks (0-11)
+    for (uint32_t i = 0; i < 12 && i < inode->i_blocks; i++) {
+        if (inode->i_block[i] != 0) {
+            set_block_free(inode->i_block[i]);
+            inode->i_block[i] = 0;
+        }
+    }
+
+    // Dealokasi single indirect blocks
+    if (inode->i_block[12] != 0) {
+        uint32_t indirect_table[ptrs_per_block];
+        read_blocks(indirect_table, inode->i_block[12], 1);
+        
+        // Dealokasi semua blok data yang dirujuk
+        for (uint32_t i = 0; i < ptrs_per_block; i++) {
+            if (indirect_table[i] != 0) {
+                set_block_free(indirect_table[i]);
+            }
+        }
+        
+        // Dealokasi blok indirect table itu sendiri
+        set_block_free(inode->i_block[12]);
+        inode->i_block[12] = 0;
+    }
+
+    // Dealokasi double indirect blocks
+    if (inode->i_block[13] != 0) {
+        uint32_t double_indirect_table[ptrs_per_block];
+        read_blocks(double_indirect_table, inode->i_block[13], 1);
+        
+        for (uint32_t i = 0; i < ptrs_per_block; i++) {
+            if (double_indirect_table[i] != 0) {
+                uint32_t indirect_table[ptrs_per_block];
+                read_blocks(indirect_table, double_indirect_table[i], 1);
+                
+                // Dealokasi semua blok data yang dirujuk
+                for (uint32_t j = 0; j < ptrs_per_block; j++) {
+                    if (indirect_table[j] != 0) {
+                        set_block_free(indirect_table[j]);
+                    }
+                }
+                
+                // Dealokasi indirect table level kedua
+                set_block_free(double_indirect_table[i]);
+            }
+        }
+        
+        // Dealokasi double indirect table itu sendiri
+        set_block_free(inode->i_block[13]);
+        inode->i_block[13] = 0;
+    }
+
+    // Reset semua pointer
+    for (uint32_t i = 0; i < 15; i++) {
+        inode->i_block[i] = 0;
+    }
+    inode->i_blocks = 0;
 }
 
 void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_bgd)
@@ -150,10 +448,14 @@ int8_t write(struct EXT2DriverRequest request)
     return -1;
   }
 
-  // Batasi ukuran file untuk mencegah overflow
-  if (request.buffer_size > 20 * BLOCK_SIZE)
+  // Perbesar batasan ukuran file karena sekarang mendukung indirect blocks
+  // Maksimum file sekarang bisa mencapai ~8MB dengan indirect blocks
+  const uint32_t ptrs_per_block = BLOCK_SIZE / sizeof(uint32_t); // 128
+  uint32_t max_file_size = (12 + ptrs_per_block + ptrs_per_block * ptrs_per_block) * BLOCK_SIZE;
+  
+  if (request.buffer_size > max_file_size)
   {
-    DEBUG_PRINT("Error: File too large. Max size: %u bytes\n", 20 * BLOCK_SIZE);
+    DEBUG_PRINT("Error: File too large. Max size with indirect blocks: %u bytes\n", max_file_size);
     return -1;
   }
 
@@ -209,26 +511,33 @@ int8_t write(struct EXT2DriverRequest request)
 
   if (request.is_directory)
   {
-    // Buat direktori
-    new_node.i_mode = EXT2_S_IFDIR;
-    new_node.i_size = BLOCK_SIZE;
-    new_node.i_blocks = 1;
-    new_node.i_block[0] = allocate_block(inode_to_bgd(new_inode));
+      // Buat direktori (masih menggunakan cara lama karena direktori kecil)
+      new_node.i_mode = EXT2_S_IFDIR;
+      new_node.i_size = BLOCK_SIZE;
+      new_node.i_blocks = 1;
+      new_node.i_block[0] = allocate_block(inode_to_bgd(new_inode));
 
-    // Inisialisasi entri direktori (. dan ..)
-    init_directory_table(&new_node, new_inode, request.parent_inode);
+      // Inisialisasi entri direktori (. dan ..)
+      init_directory_table(&new_node, new_inode, request.parent_inode);
   }
   else
   {
-    // Buat file
+    // Buat file dengan dukungan indirect blocks
     new_node.i_mode = EXT2_S_IFREG;
     new_node.i_size = request.buffer_size;
-    new_node.i_blocks = ceil_div(request.buffer_size, BLOCK_SIZE);
 
-    // Alokasikan blok dan tulis data dengan validasi
+    // GUNAKAN FUNGSI EXTENDED UNTUK ALOKASI BLOK DENGAN DUKUNGAN INDIRECT
     if (request.buffer_size > 0 && request.buf != NULL)
     {
-      allocate_node_blocks(request.buf, &new_node, inode_to_bgd(new_inode));
+      DEBUG_PRINT("DEBUG: Using extended allocation for file size: %u bytes\n", request.buffer_size);
+      allocate_node_blocks_extended(request.buf, &new_node, inode_to_bgd(new_inode));
+      DEBUG_PRINT("DEBUG: Extended allocation completed. Blocks allocated: %u\n", new_node.i_blocks);
+    }
+    else if (request.buffer_size == 0)
+    {
+      // File kosong
+      new_node.i_blocks = 0;
+      DEBUG_PRINT("DEBUG: Created empty file\n");
     }
   }
 
@@ -473,24 +782,8 @@ void read_inode(uint32_t inode, struct EXT2Inode *out_inode)
 
 void read_inode_data(struct EXT2Inode *inode, void *buf, uint32_t size)
 {
-  if (inode == NULL || buf == NULL || size == 0)
-    return;
-  uint32_t bytes_read = 0;
-  uint32_t block_idx = 0;
-
-  while (bytes_read < size && block_idx < inode->i_blocks)
-  {
-    uint8_t block_buf[BLOCK_SIZE];
-    read_blocks(block_buf, inode->i_block[block_idx], 1);
-
-    uint32_t to_read = size - bytes_read;
-    if (to_read > BLOCK_SIZE)
-      to_read = BLOCK_SIZE;
-
-    memcpy((uint8_t *)buf + bytes_read, block_buf, to_read);
-    bytes_read += to_read;
-    block_idx++;
-  }
+    // Redirect ke fungsi extended yang mendukung indirect blocks
+    read_inode_data_extended(inode, buf, size);
 }
 
 void set_block_free(uint32_t block)
@@ -524,7 +817,6 @@ uint32_t inode_to_local(uint32_t inode)
 {
   return (inode - 1) % INODES_PER_GROUP;
 }
-// Tambahkan implementasi fungsi-fungsi yang hilang:
 
 // Directory entry helper functions
 char *get_entry_name(void *entry)
@@ -696,8 +988,6 @@ void initialize_filesystem_ext2(void)
   }
 }
 
-// Tambahkan sebelum fungsi deallocate_node()
-
 uint32_t allocate_node(void)
 {
   for (uint32_t i = 0; i < GROUPS_COUNT; i++)
@@ -736,26 +1026,24 @@ void sync_node(struct EXT2Inode *node, uint32_t inode)
 
 void deallocate_node(uint32_t inode)
 {
-  // Baca inode
-  struct EXT2Inode node;
-  read_inode(inode, &node);
+    DEBUG_PRINT("DEBUG: Deallocating inode %u using extended function\n", inode);
+    
+    // Baca inode
+    struct EXT2Inode node;
+    read_inode(inode, &node);
 
-  // Dealokasi blok data yang digunakan
-  for (uint32_t i = 0; i < node.i_blocks && i < 12; i++)
-  {
-    if (node.i_block[i] != 0)
-    {
-      set_block_free(node.i_block[i]);
-    }
-  }
+    // GUNAKAN FUNGSI EXTENDED UNTUK DEALOKASI DENGAN DUKUNGAN INDIRECT BLOCKS
+    deallocate_node_blocks_extended(&node);
 
-  // Tandai inode sebagai tidak terpakai
-  clear_inode_used(inode);
+    // Tandai inode sebagai tidak terpakai
+    clear_inode_used(inode);
 
-  // Update counter free inodes
-  uint32_t group = inode_to_bgd(inode);
-  bgd_table.table[group].bg_free_inodes_count++;
-  superblock.s_free_inodes_count++;
+    // Update counter free inodes
+    uint32_t group = inode_to_bgd(inode);
+    bgd_table.table[group].bg_free_inodes_count++;
+    superblock.s_free_inodes_count++;
+    
+    DEBUG_PRINT("DEBUG: Successfully deallocated inode %u\n", inode);
 }
 
 int8_t delete(struct EXT2DriverRequest request)
@@ -791,14 +1079,11 @@ int8_t delete(struct EXT2DriverRequest request)
   return 0;
 }
 
-// Tambahkan implementasi fungsi ini di src/ext2.c, sebaiknya di akhir file:
-
 int8_t read_directory(struct EXT2DriverRequest *request)
 {
   // Validasi input
   if (request == NULL || request->name_len == 0)
   {
-    // Hapus pengecekan request->name == NULL karena name adalah array
     return -1;
   }
 
@@ -840,63 +1125,88 @@ int8_t read_directory(struct EXT2DriverRequest *request)
 
 int8_t read(struct EXT2DriverRequest request)
 {
+  DEBUG_PRINT("DEBUG read: Entering function\n");
+  DEBUG_PRINT("DEBUG read: parent_inode=%u, name='%s', buffer_size=%u\n", 
+              request.parent_inode, request.name, request.buffer_size);
+
+  // Validasi input
+  if (request.name[0] == '\0')
+  {
+    DEBUG_PRINT("Error: Empty filename\n");
+    return -1;
+  }
+
+  if (request.buf == NULL || request.buffer_size == 0)
+  {
+    DEBUG_PRINT("Error: Invalid buffer or buffer size\n");
+    return -1;
+  }
+
   // Cari inode direktori parent
   uint32_t parent_inode_idx = request.parent_inode;
   struct EXT2Inode parent_inode;
+  
   // Baca inode parent
-  uint32_t group = inode_to_bgd(parent_inode_idx);
-  uint32_t local_inode = inode_to_local(parent_inode_idx);
-  struct EXT2InodeTable inode_table;
-  read_blocks(&inode_table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
-  parent_inode = inode_table.table[local_inode];
+  read_inode(parent_inode_idx, &parent_inode);
+  
+  // Verifikasi bahwa parent adalah direktori
+  if (!is_directory(&parent_inode))
+  {
+    DEBUG_PRINT("Error: Parent is not a directory\n");
+    return 3;
+  }
+
+  // Buat salinan nama yang aman
+  char name_copy[256];
+  size_t name_len = strlen(request.name);
+  if (name_len >= sizeof(name_copy))
+  {
+    name_len = sizeof(name_copy) - 1;
+  }
+  memcpy(name_copy, request.name, name_len);
+  name_copy[name_len] = '\0';
 
   // Cari entry file di direktori parent
-  uint8_t buf[BLOCK_SIZE];
-  read_blocks(buf, parent_inode.i_block[0], 1);
-  uint32_t offset = 0;
   uint32_t found_inode = 0;
-  while (offset < BLOCK_SIZE)
+  if (!find_inode_in_dir(&parent_inode, name_copy, &found_inode))
   {
-    struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(buf + offset);
-    if (entry->inode != 0)
-    {
-      char *entry_name = (char *)(entry + 1);
-      if (strlen(request.name) == entry->name_len && memcmp(entry_name, request.name, entry->name_len) == 0)
-      {
-        found_inode = entry->inode;
-        break;
-      }
-    }
-    offset += entry->rec_len;
+    DEBUG_PRINT("Error: File not found: '%s'\n", name_copy);
+    return 3; // File not found
   }
-  if (found_inode == 0)
-    return 3;
+
+  DEBUG_PRINT("DEBUG: Found file with inode: %u\n", found_inode);
 
   // Baca inode file
-  group = inode_to_bgd(found_inode);
-  local_inode = inode_to_local(found_inode);
-  read_blocks(&inode_table, bgd_table.table[group].bg_inode_table, INODES_TABLE_BLOCK_COUNT);
-  struct EXT2Inode file_inode = inode_table.table[local_inode];
+  struct EXT2Inode file_inode;
+  read_inode(found_inode, &file_inode);
 
-  // Jika direktori, return 1
-  if ((file_inode.i_mode & EXT2_S_IFDIR) == EXT2_S_IFDIR)
-    return 1;
-  if (file_inode.i_size > request.buffer_size)
-    return 2;
-
-  // Baca data file
-  uint32_t bytes_read = 0;
-  uint32_t block_idx = 0;
-  while (bytes_read < file_inode.i_size && block_idx < file_inode.i_blocks)
+  // Jika direktori, return error
+  if (is_directory(&file_inode))
   {
-    uint8_t block_buf[BLOCK_SIZE];
-    read_blocks(block_buf, file_inode.i_block[block_idx], 1);
-    uint32_t to_read = file_inode.i_size - bytes_read;
-    if (to_read > BLOCK_SIZE)
-      to_read = BLOCK_SIZE;
-    memcpy((uint8_t *)request.buf + bytes_read, block_buf, to_read);
-    bytes_read += to_read;
-    block_idx++;
+    DEBUG_PRINT("Error: Target is a directory, not a file\n");
+    return 1; // Is directory
   }
-  return 0;
+
+  // Cek apakah buffer cukup besar
+  if (file_inode.i_size > request.buffer_size)
+  {
+    DEBUG_PRINT("Error: Buffer too small. File size: %u, Buffer size: %u\n", 
+                file_inode.i_size, request.buffer_size);
+    return 2; // Buffer too small
+  }
+
+  // GUNAKAN FUNGSI EXTENDED UNTUK MEMBACA DATA DENGAN DUKUNGAN INDIRECT BLOCKS
+  DEBUG_PRINT("DEBUG: Reading file data using extended function. File size: %u bytes\n", file_inode.i_size);
+  
+  if (file_inode.i_size > 0)
+  {
+    read_inode_data_extended(&file_inode, request.buf, file_inode.i_size);
+    DEBUG_PRINT("DEBUG: Successfully read %u bytes using extended read function\n", file_inode.i_size);
+  }
+  else
+  {
+    DEBUG_PRINT("DEBUG: File is empty, no data to read\n");
+  }
+
+  return 0; // Success
 }

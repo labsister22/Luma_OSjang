@@ -234,6 +234,14 @@ void syscall(struct InterruptFrame frame)
     __asm__ volatile("cli; hlt");
   }
   break;
+  case 21:
+  {
+    struct EXT2Inode* out_inode = (struct EXT2Inode*) frame.cpu.general.ebx;
+    uint32_t inode_idx = frame.cpu.general.ecx;
+    read_inode(inode_idx, out_inode); // Pastikan ada fungsi read_inode di ext2.c
+    break;
+    
+  }
   case 22: // SYS_LIST_DIR
   {
     uint8_t start_print_row = (uint8_t)frame.cpu.general.ebx;
@@ -336,6 +344,14 @@ end_list_dir_syscall_modified:; // Label baru untuk goto
     frame.cpu.general.eax = current_print_row;    // Kembalikan baris berikutnya yang tersedia
   }
   break;
+  case 23: // SYS_READ_BLOCK
+  {
+    uint8_t* buffer = (uint8_t*) frame.cpu.general.ebx;
+    uint32_t block_num = frame.cpu.general.ecx;
+    uint32_t count = frame.cpu.general.edx;
+    read_blocks(buffer, block_num, count); // Pastikan fungsi ini ada
+    break;
+  }
 
   default:
     // Unknown system call
