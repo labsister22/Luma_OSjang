@@ -81,18 +81,15 @@ void get_time_string(char* buffer) {
 
 // Function to process commands
 void process_command(char* command_buffer) {
-    // With strtok disallowed, simple command parsing (command + one arg) is the only option.
-    // If command_buffer contains spaces, this will treat the whole thing as one command name.
-    // Full UNIX-like command parsing is not possible under these constraints.
-
     char* command_name = command_buffer;
     char* arg1 = NULL;
     char* arg2 = NULL;
 
-    // Manual attempt to find the first space to separate command and first argument.
-    // This is a very basic replacement for strtok for only one argument.
+    // Manual attempt to find spaces to separate command and arguments
     size_t cmd_len = strlen(command_buffer);
     size_t i;
+    
+    // Find first space (separates command from arg1)
     for (i = 0; i < cmd_len; ++i) {
         if (command_buffer[i] == ' ') {
             command_buffer[i] = '\0'; // Null-terminate command name
@@ -103,6 +100,24 @@ void process_command(char* command_buffer) {
             }
             if (*arg1 == '\0') { // If argument is just spaces or empty
                 arg1 = NULL;
+                break;
+            }
+            
+            // Find second space (separates arg1 from arg2)
+            char* temp_ptr = arg1;
+            while (*temp_ptr != '\0' && *temp_ptr != ' ') {
+                temp_ptr++;
+            }
+            if (*temp_ptr == ' ') {
+                *temp_ptr = '\0'; // Null-terminate arg1
+                arg2 = temp_ptr + 1;
+                // Skip leading spaces for arg2
+                while (*arg2 == ' ' && *arg2 != '\0') {
+                    arg2++;
+                }
+                if (*arg2 == '\0') { // If arg2 is just spaces or empty
+                    arg2 = NULL;
+                }
             }
             break;
         }

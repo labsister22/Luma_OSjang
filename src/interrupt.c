@@ -123,7 +123,253 @@ struct rtc_time
 };
 
 struct Time get_cmos_time();
-
+int8_t copy_file(struct EXT2DriverRequest *src_request, struct EXT2DriverRequest *dst_request) {
+    // Validasi input parameter
+    if (!src_request || !dst_request) {
+        return -1; // Invalid parameters
+    }
+    
+    if (src_request->name_len == 0 || dst_request->name_len == 0) {
+        return -1; // Invalid file names
+    }
+    
+    // 1. Cari source file dalam parent directory
+    struct EXT2Inode parent_inode;
+    read_inode(src_request->parent_inode, &parent_inode);
+    
+    // Pastikan parent adalah directory
+    if (!(parent_inode.i_mode & EXT2_S_IFDIR)) {
+        return -1; // Parent is not a directory
+    }
+    
+    uint8_t dir_block[BLOCK_SIZE];
+    uint32_t source_inode_idx = 0;
+    bool source_found = false;
+    
+    // Cari source file
+    for (uint32_t block_idx = 0; block_idx < parent_inode.i_blocks && block_idx < 12; block_idx++) {
+        if (parent_inode.i_block[block_idx] == 0) continue;
+        
+        read_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+        
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            // Bandingkan nama dengan source
+            char *entry_name = (char *)(entry + 1);
+            if (entry->name_len == src_request->name_len) {
+                bool names_match = true;
+                for (uint8_t i = 0; i < entry->name_len; i++) {
+                    if (entry_name[i] != src_request->name[i]) {
+                        names_match = false;
+                        break;
+                    }
+                }
+                if (names_match) {
+                    source_inode_idx = entry->inode;
+                    source_found = true;
+                    
+                    // Pastikan source bukan directory
+                    if (entry->file_type == EXT2_FT_DIR) {
+                        return -3; // Cannot copy directory
+                    }
+                    break;
+                }
+            }
+            
+            offset += entry->rec_len;
+        }
+        
+        if (source_found) break;
+    }
+    
+    if (!source_found) {
+        return -1; // Source file not found
+    }
+    
+    // 2. Cek apakah destination file sudah ada
+    bool dest_exists = false;
+    
+    // Reset untuk pencarian destination
+    for (uint32_t block_idx = 0; block_idx < parent_inode.i_blocks && block_idx < 12; block_idx++) {
+        if (parent_inode.i_block[block_idx] == 0) continue;
+        
+        read_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+        
+        uint32_t offset = 0;
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            // Bandingkan nama dengan destination
+            char *entry_name = (char *)(entry + 1);
+            if (entry->name_len == dst_request->name_len) {
+                bool names_match = true;
+                for (uint8_t i = 0; i < entry->name_len; i++) {
+                    if (entry_name[i] != dst_request->name[i]) {
+                        names_match = false;
+                        break;
+                    }
+                }
+                if (names_match) {
+                    dest_exists = true;
+                    break;
+                }
+            }
+            
+            offset += entry->rec_len;
+        }
+        
+        if (dest_exists) break;
+    }
+    
+    if (dest_exists) {
+        return -2; // Destination already exists
+    }
+    
+    // 3. Baca source file inode dan data
+    struct EXT2Inode source_inode;
+    read_inode(source_inode_idx, &source_inode);
+    
+    // Pastikan source adalah file reguler
+    if (source_inode.i_mode & EXT2_S_IFDIR) {
+        return -3; // Source is a directory
+    }
+    
+    // 4. Alokasi inode baru untuk destination
+    uint32_t new_inode_idx = allocate_node();
+    if (new_inode_idx == 0) {
+        return -4; // Failed to allocate inode
+    }
+    
+    // 5. Copy source inode properties ke destination inode
+    struct EXT2Inode dest_inode;
+    // Copy semua properties dari source
+    for (int i = 0; i < (int)sizeof(struct EXT2Inode); i++) {
+        ((uint8_t*)&dest_inode)[i] = ((uint8_t*)&source_inode)[i];
+    }
+    
+    // Reset block pointers untuk destination
+    for (int i = 0; i < 15; i++) {
+        dest_inode.i_block[i] = 0;
+    }
+    
+    // 6. Copy data blocks dari source ke destination
+    uint32_t blocks_to_copy = (source_inode.i_size + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    if (blocks_to_copy > source_inode.i_blocks) {
+        blocks_to_copy = source_inode.i_blocks;
+    }
+    
+    uint8_t file_block[BLOCK_SIZE];
+    uint32_t bgd_idx = inode_to_bgd(new_inode_idx);
+    
+    for (uint32_t i = 0; i < blocks_to_copy && i < 12; i++) { // Direct blocks only
+        if (source_inode.i_block[i] == 0) continue;
+        
+        // Alokasi block baru untuk destination
+        int32_t new_block = allocate_block(bgd_idx);
+        if (new_block < 0) {
+            // Cleanup: dealokasi inode dan blocks yang sudah dialokasi
+            clear_inode_used(new_inode_idx);
+            for (uint32_t j = 0; j < i; j++) {
+                if (dest_inode.i_block[j] != 0) {
+                    set_block_free(dest_inode.i_block[j]);
+                }
+            }
+            return -5; // Failed to allocate blocks
+        }
+        
+        // Copy data dari source block ke destination block
+        read_blocks(file_block, source_inode.i_block[i], 1);
+        write_blocks(file_block, new_block, 1);
+        
+        dest_inode.i_block[i] = new_block;
+    }
+    
+    // 7. Sync destination inode ke disk
+    sync_node(&dest_inode, new_inode_idx);
+    
+    // 8. Tambahkan entry untuk destination file ke parent directory
+    bool entry_added = false;
+    
+    for (uint32_t block_idx = 0; block_idx < parent_inode.i_blocks && block_idx < 12; block_idx++) {
+        if (parent_inode.i_block[block_idx] == 0) continue;
+        
+        read_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+        
+        uint32_t offset = 0;
+        struct EXT2DirectoryEntry *last_entry = NULL;
+        
+        // Cari entry terakhir dalam block
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry *entry = (struct EXT2DirectoryEntry *)(dir_block + offset);
+            
+            if (entry->inode == 0 || entry->rec_len == 0) break;
+            if (offset + entry->rec_len > BLOCK_SIZE) break;
+            
+            last_entry = entry;
+            offset += entry->rec_len;
+        }
+        
+        if (last_entry) {
+            // Hitung space yang dibutuhkan untuk entry baru
+            uint16_t new_entry_size = get_entry_record_len(dst_request->name_len);
+            uint16_t actual_last_size = get_entry_record_len(last_entry->name_len);
+            uint16_t available_space = last_entry->rec_len - actual_last_size;
+            
+            if (available_space >= new_entry_size) {
+                // Ada cukup space, buat entry baru
+                uint32_t last_entry_offset = (uint8_t*)last_entry - dir_block;
+                
+                // Sesuaikan rec_len dari entry terakhir
+                last_entry->rec_len = actual_last_size;
+                
+                // Buat entry baru
+                uint32_t new_entry_offset = last_entry_offset + actual_last_size;
+                struct EXT2DirectoryEntry *new_entry = (struct EXT2DirectoryEntry *)(dir_block + new_entry_offset);
+                
+                new_entry->inode = new_inode_idx;
+                new_entry->name_len = dst_request->name_len;
+                new_entry->file_type = EXT2_FT_REG_FILE; // Regular file
+                new_entry->rec_len = BLOCK_SIZE - new_entry_offset; // Sisa space di block
+                
+                // Copy nama destination
+                char *new_name_ptr = (char *)(new_entry + 1);
+                for (uint8_t i = 0; i < dst_request->name_len; i++) {
+                    new_name_ptr[i] = dst_request->name[i];
+                }
+                
+                // Tulis block yang sudah dimodifikasi
+                write_blocks(dir_block, parent_inode.i_block[block_idx], 1);
+                entry_added = true;
+                break;
+            }
+        }
+    }
+    
+    if (!entry_added) {
+        // Cleanup jika gagal menambahkan entry
+        clear_inode_used(new_inode_idx);
+        for (uint32_t i = 0; i < blocks_to_copy && i < 12; i++) {
+            if (dest_inode.i_block[i] != 0) {
+                set_block_free(dest_inode.i_block[i]);
+            }
+        }
+        return -8; // Parent directory full
+    }
+    
+    // 9. Sync parent directory dan superblock
+    sync_node(&parent_inode, src_request->parent_inode);
+    sync_superblock();
+    
+    return 0; // Success
+}
 int8_t create_directory(struct EXT2DriverRequest *request) {
     // Validasi input parameter
     if (!request || request->name_len == 0) {
