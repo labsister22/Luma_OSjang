@@ -176,9 +176,121 @@ uint32_t find_inode_by_name(uint32_t parent_inode, const char* name) {
     
     return 0; // Not found
 }
-// ...existing code...
+// Global variables for rm operation
+static uint32_t rm_target_inode = 0;
+static int rm_target_found = 0;
+static int rm_is_directory = 0;
 
-// Perbaiki handle_cd
+// Modified find_recursive for rm - finds file/directory in current directory only
+void find_for_rm(uint32_t curr_inode, const char* search_name, int* found, int* is_dir, uint32_t* target_inode) {
+    if (*found || curr_inode == 0 || search_name == NULL) {
+        return;
+    }
+
+    // Validate search_name is not empty
+    if (search_name[0] == '\0') {
+        return;
+    }
+
+    struct EXT2Inode dir_inode;
+    char* inode_ptr = (char*)&dir_inode;
+    for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+        inode_ptr[i] = 0;
+    }
+    
+    syscall(21, (uint32_t)&dir_inode, curr_inode, 0);
+
+    if (dir_inode.i_size == 0 || dir_inode.i_size > 65536 || 
+        !(dir_inode.i_mode & 0x4000) || dir_inode.i_block[0] == 0) {
+        return;
+    }
+
+    uint8_t buf[1024];
+    for (unsigned int i = 0; i < 1024; i++) {
+        buf[i] = 0;
+    }
+    
+    syscall(23, (uint32_t)buf, dir_inode.i_block[0], 1);
+
+    uint32_t offset = 0;
+    int entries_processed = 0;
+    const int MAX_ENTRIES = 50;
+    
+    while (offset < 1000 && !(*found) && entries_processed < MAX_ENTRIES) {
+        if (offset + sizeof(struct EXT2DirectoryEntry) > 1024) {
+            break;
+        }
+        
+        struct EXT2DirectoryEntry* entry = (struct EXT2DirectoryEntry*)(buf + offset);
+
+        if (entry->rec_len == 0 || entry->rec_len < 8 || 
+            entry->rec_len > 500 || offset + entry->rec_len > 1024) {
+            break;
+        }
+        
+        if (entry->inode == 0 || entry->name_len == 0 || entry->name_len > 255) {
+            offset += entry->rec_len;
+            entries_processed++;
+            continue;
+        }
+
+        char entry_name[256];
+        char* name_ptr = (char*)(entry + 1);
+        unsigned int name_len = (unsigned int)entry->name_len;
+        
+        if (name_len > 255) name_len = 255;
+        if (offset + sizeof(struct EXT2DirectoryEntry) + name_len > 1024) {
+            name_len = 1024 - offset - sizeof(struct EXT2DirectoryEntry);
+            if (name_len > 255) name_len = 255;
+        }
+        
+        for (unsigned int i = 0; i < name_len; i++) {
+            if (offset + sizeof(struct EXT2DirectoryEntry) + i >= 1024) {
+                name_len = i;
+                break;
+            }
+            if (i >= 255) {
+                name_len = i;
+                break;
+            }
+            entry_name[i] = name_ptr[i];
+        }
+        entry_name[name_len] = '\0';
+
+        // Compare with search name
+        unsigned int search_len = 0;
+        while (search_name[search_len] != '\0' && search_len < 255) {
+            search_len++;
+        }
+        
+        int match = (search_len == name_len && search_len > 0);
+        for (unsigned int i = 0; match && i < search_len; i++) {
+            if (search_name[i] != entry_name[i]) {
+                match = 0;
+            }
+        }
+
+        if (match) {
+            // Found the target - get its type
+            struct EXT2Inode found_inode;
+            char* found_ptr = (char*)&found_inode;
+            for (unsigned int i = 0; i < sizeof(struct EXT2Inode); i++) {
+                found_ptr[i] = 0;
+            }
+            syscall(21, (uint32_t)&found_inode, entry->inode, 0);
+            
+            *found = 1;
+            *target_inode = entry->inode;
+            *is_dir = (found_inode.i_mode & 0x4000) ? 1 : 0;
+            return;
+        }
+
+        offset += entry->rec_len;
+        entries_processed++;
+    }
+}
+
+// Perbaiki handle_cd menggunakan find_for_rm
 void handle_cd(const char* path, int current_row) {
     current_output_row = current_row;
 
@@ -187,29 +299,90 @@ void handle_cd(const char* path, int current_row) {
         return;
     }
 
-    char resolved_path[256];
-    uint32_t target_inode = resolve_path_display(resolved_path, path);
-
-    // Check jika path tidak valid (simplified check)
-    if (target_inode == 0) { // 0 = invalid inode
-        print_line("Error: Path not found");
+    // Handle special cases
+    if (strcmp(path, "/") == 0) {
+        // Go to root directory
+        current_inode = 2; // Root inode
+        strcpy(current_working_directory, "/");
+        
+        current_output_row++;
+        print_string("Changed to root directory: /", current_output_row, 0);
+        return;
+    }
+    
+    if (strcmp(path, "..") == 0 || strcmp(path, "../") == 0) {
+        // Go to parent directory (simplified - for now just go to root)
+        if (strcmp(current_working_directory, "/") != 0) {
+            current_inode = 2; // Root inode
+            strcpy(current_working_directory, "/");
+            
+            current_output_row++;
+            print_string("Changed to parent directory: /", current_output_row, 0);
+        } else {
+            current_output_row++;
+            print_string("Already at root directory", current_output_row, 0);
+        }
+        return;
+    }
+    
+    if (strcmp(path, ".") == 0) {
+        // Stay in current directory
+        current_output_row++;
+        print_string("Staying in current directory: ", current_output_row, 0);
+        print_string(current_working_directory, current_output_row, 30);
         return;
     }
 
-    // Update current directory
+    // PERBAIKAN: Gunakan find_for_rm untuk mencari directory
+    int target_found = 0;
+    int is_directory = 0;
+    uint32_t target_inode = 0;
+    
+    // Use find_for_rm to locate the target directory
+    find_for_rm(current_inode, path, &target_found, &is_directory, &target_inode);
+    
+    if (!target_found || target_inode == 0) {
+        current_output_row++;
+        print_string("cd: directory '", current_output_row, 0);
+        print_string(path, current_output_row, 15);
+        print_string("' not found", current_output_row, 15 + strlen(path));
+        return;
+    }
+    
+    // Check if target is actually a directory
+    if (!is_directory) {
+        current_output_row++;
+        print_string("cd: '", current_output_row, 0);
+        print_string(path, current_output_row, 5);
+        print_string("' is not a directory", current_output_row, 5 + strlen(path));
+        return;
+    }
+    
+    // Success! Update current directory
     current_inode = target_inode;
+    
+    // Update working directory path
+    if (path[0] == '/') {
+        // Absolute path
+        strcpy(current_working_directory, path);
+    } else {
+        // Relative path - append to current
+        if (strcmp(current_working_directory, "/") != 0) {
+            strcat(current_working_directory, "/");
+        }
+        strcat(current_working_directory, path);
+    }
     
     // Optional: gunakan syscall jika ada implementasi cd di kernel
     syscall(18, current_inode, (uint32_t)path, 0);
-
-    // Update working directory string dengan resolved path
-    strcpy(current_working_directory, resolved_path);
     
-    // Success message (optional)
+    // Success message
     current_output_row++;
     print_string("Changed directory to: ", current_output_row, 0);
-    print_string(resolved_path, current_output_row, 22);
+    print_string(current_working_directory, current_output_row, 22);
 }
+// ...existing code...
+
 // ...existing code...
 int handle_ls(int current_row) {
     current_output_row = current_row +1;
@@ -285,59 +458,103 @@ void handle_cp(const char* source, const char* destination, int current_row) {
     (void)current_row;
 }
 
+
+
+
+// Fixed handle_rm function - uses find_for_rm to locate files/directories
 void handle_rm(const char* path, int current_row) {
     if (!path || strlen(path) == 0) {
         print_string("rm: missing file/directory name", current_row + 1, 0);
         return;
     }
     
-    // Find file/directory inode
-    uint32_t target_inode = find_inode_by_name(current_inode, path);
-    if (target_inode == 0) {
-        print_string("rm: file/directory not found", current_row + 1, 0);
+    // Special check: don't allow removal of . or ..
+    if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0 || strcmp(path, "../") == 0) {
+        print_string("rm: cannot remove '.' or '..' or '../' directories", current_row + 1, 0);
         return;
     }
     
-    // Check if it's a directory or file
-    struct EXT2Inode inode;
-    read_inode(target_inode, &inode);
+    // Reset global variables
+    rm_target_inode = 0;
+    rm_target_found = 0;
+    rm_is_directory = 0;
     
-    // Prepare delete request
-    struct EXT2DriverRequest request;
-    request.buf = NULL;
+    // Use find_for_rm to locate the target in current directory
+    find_for_rm(current_inode, path, &rm_target_found, &rm_is_directory, &rm_target_inode);
     
-    // Manual string copy to avoid strncpy
-    uint32_t path_len = strlen(path);
-    uint32_t max_copy = sizeof(request.name) - 1;
-    if (path_len < max_copy) max_copy = path_len;
-    
-    for (uint32_t i = 0; i < max_copy; i++) {
-        request.name[i] = path[i];
+    if (!rm_target_found || rm_target_inode == 0) {
+        print_string("rm: file/directory '", current_row + 1, 0);
+        print_string(path, current_row + 1, 20);
+        print_string("' not found", current_row + 1, 20 + strlen(path));
+        return;
     }
-    request.name[max_copy] = '\0'; // Null terminate
     
-    request.name_len = path_len;
+    // Prepare the deletion request
+    struct EXT2DriverRequest request;
+    memset(&request, 0, sizeof(request));
+    
+    // Set up the request parameters
     request.parent_inode = current_inode;
     request.buffer_size = 0;
-    request.is_directory = (inode.i_mode & EXT2_S_IFDIR) ? 1 : 0;
+    request.buf = NULL;
+    request.is_directory = rm_is_directory;
     
+    // Copy the name safely
+    size_t path_len = strlen(path);
+    size_t max_copy = sizeof(request.name) - 1;
+    if (path_len < max_copy) {
+        max_copy = path_len;
+    }
+    
+    for (size_t i = 0; i < max_copy; i++) {
+        request.name[i] = path[i];
+    }
+    request.name[max_copy] = '\0';
+    request.name_len = path_len;
+    
+    // Call the appropriate syscall based on type
     int8_t result;
-    
-    if (request.is_directory) {
-        // Delete directory using syscall 26
+    if (rm_is_directory) {
+        // Use syscall 26 for directory deletion
         syscall(26, (uint32_t)&request, (uint32_t)&result, 0);
-        if (result == 0) {
-            print_string("rm: directory removed successfully", current_row + 1, 0);
-        } else {
-            print_string("rm: failed to remove directory", current_row + 1, 0);
-        }
     } else {
-        // Delete file using syscall 25
+        // Use syscall 25 for file deletion
         syscall(25, (uint32_t)&request, (uint32_t)&result, 0);
-        if (result == 0) {
-            print_string("rm: file removed successfully", current_row + 1, 0);
+    }
+    
+    // Report the result
+    if (result == 0) {
+        print_string("rm: ", current_row + 1, 0);
+        if (rm_is_directory) {
+            print_string("directory '", current_row + 1, 4);
         } else {
-            print_string("rm: failed to remove file", current_row + 1, 0);
+            print_string("file '", current_row + 1, 4);
+        }
+        print_string(path, current_row + 1, rm_is_directory ? 15 : 10);
+        print_string("' removed successfully", current_row + 1, (rm_is_directory ? 15 : 10) + strlen(path));
+    } else {
+        print_string("rm: failed to remove ", current_row + 1, 0);
+        if (rm_is_directory) {
+            print_string("directory '", current_row + 1, 21);
+        } else {
+            print_string("file '", current_row + 1, 21);
+        }
+        print_string(path, current_row + 1, rm_is_directory ? 32 : 27);
+        
+        // Provide more specific error messages based on result code
+        switch (result) {
+            case 1:
+                print_string("' - already exists or permission denied", current_row + 1, (rm_is_directory ? 32 : 27) + strlen(path));
+                break;
+            case 2:
+                print_string("' - parent is not a directory", current_row + 1, (rm_is_directory ? 32 : 27) + strlen(path));
+                break;
+            case 3:
+                print_string("' - directory not empty", current_row + 1, (rm_is_directory ? 32 : 27) + strlen(path));
+                break;
+            default:
+                print_string("' - unknown error", current_row + 1, (rm_is_directory ? 32 : 27) + strlen(path));
+                break;
         }
     }
 }
